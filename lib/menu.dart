@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'krupan.dart'; // ✅ เพิ่มบรรทัดนี้เท่านั้น
 
 class MenuScreen extends StatelessWidget {
   const MenuScreen({super.key});
@@ -26,15 +27,14 @@ class MenuScreen extends StatelessWidget {
           ),
         ),
         actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 25), // ⭐ ลดจากขอบขวา
-              child: IconButton(
-                icon: const Icon(Icons.menu, color: Colors.white, size: 36),
-                onPressed: () {},
-              ),
+          Padding(
+            padding: const EdgeInsets.only(right: 25), // ⭐ ลดจากขอบขวา
+            child: IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white, size: 36),
+              onPressed: () {},
             ),
-          ],
-
+          ),
+        ],
       ),
 
       // ===== BODY =====
@@ -77,7 +77,14 @@ class MenuScreen extends StatelessWidget {
             MenuItem(
               imageUrl: 'https://cdn-icons-png.flaticon.com/512/9252/9252207.png',
               title: 'ครุภัณฑ์',
-              onTap: () {},
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const KrupanScreen(),
+                  ),
+                );
+              },
             ),
             MenuItem(
               imageUrl: 'https://cdn-icons-png.flaticon.com/512/11873/11873385.png',
