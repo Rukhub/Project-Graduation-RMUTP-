@@ -4,6 +4,7 @@ import 'add_equipment_quick.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
 import 'app_drawer.dart';
+import 'main.dart';  // สำหรับ LoginPage
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
@@ -137,18 +138,22 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
       ),
 
-      // ===== ปุ่มย้อนกลับ =====
+      // ===== ปุ่มออกจากระบบ =====
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
         child: SizedBox(
           height: 56,
           child: ElevatedButton.icon(
             onPressed: () {
-              Navigator.pop(context);
+              // กลับไปหน้า Login (ออกจากระบบ)
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginPage()),
+              );
             },
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.logout),
             label: const Text(
-              'ย้อนกลับ',
+              'ออกจากระบบ',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 18,

@@ -3,6 +3,7 @@ import 'equipment_detail_screen.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
 import 'data_service.dart';
+import 'api_service.dart'; // import api_service
 import 'app_drawer.dart';
 
 class KrupanRoomScreen extends StatefulWidget {
@@ -30,10 +31,22 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     _loadData();
   }
 
-  void _loadData() {
-    setState(() {
-      equipmentList = DataService().getEquipmentsInRoom(widget.roomName);
-    });
+  Future<void> _loadData() async {
+    // โหลดข้อมูลจาก API จริง
+    final assets = await ApiService().getAssets();
+    
+    // ถ้ามีข้อมูลจาก API ให้ใช้ข้อมูลนั้น
+    if (assets.isNotEmpty) {
+      setState(() {
+        equipmentList = assets;
+      });
+    } else {
+      // Fallback: ถ้า API ยังไม่มีข้อมูล หรือ error ให้ลองใช้ข้อมูลเก่าไปก่อน (Optional)
+      // หรือปล่อยว่างไว้
+      setState(() {
+        equipmentList = [];
+      });
+    }
   }
   
   // Filter ที่เลือก

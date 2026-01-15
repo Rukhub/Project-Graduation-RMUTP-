@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'menu.dart'; // <-- import ไฟล์ menu.dart
+import 'menu.dart';
 
 void main() {
   runApp(const MyApp());
@@ -17,8 +17,51 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _handleLogin() {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+
+    // ตรวจสอบว่ากรอกข้อมูลครบหรือไม่
+    if (username.isEmpty || password.isEmpty) {
+      setState(() {
+        _errorMessage = 'กรุณากรอก Username และ Password';
+      });
+      return;
+    }
+
+    // ตรวจสอบ login แบบง่าย (hardcoded ตาม database ที่คุณแสดง)
+    // username: admin, password: 1234
+    if (username == 'admin' && password == '1234') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MenuScreen()),
+      );
+    } else {
+      setState(() {
+        _errorMessage = 'Username หรือ Password ไม่ถูกต้อง';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,9 +80,7 @@ class LoginPage extends StatelessWidget {
               padding: const EdgeInsets.all(40),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(50),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(50)),
               ),
               child: SingleChildScrollView(
                 child: Column(
@@ -53,52 +94,73 @@ class LoginPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 40),
+                    // แสดง error message ถ้ามี
+                    if (_errorMessage != null)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red.shade700),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(color: Colors.red.shade700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     TextField(
+                      controller: _usernameController,
                       decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.email),
-                        hintText: 'Email',
+                        prefixIcon: const Icon(Icons.person),
+                        hintText: 'Username',
                         filled: true,
                         fillColor: Colors.white,
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(
-                            color: Colors.grey.shade400,
-                            width: 2,
-                          ),
+                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(
-                            color: Colors.grey.shade600,
-                            width: 1.5,
-                          ),
+                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      obscureText: true,
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.lock),
-                        suffixIcon: const Icon(Icons.visibility_off),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
                         hintText: 'Password',
                         filled: true,
                         fillColor: Colors.white,
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(
-                            color: Colors.grey.shade400,
-                            width: 2,
-                          ),
+                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(
-                            color: Colors.grey.shade600,
-                            width: 1.5,
-                          ),
+                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
                         ),
                       ),
+                      onSubmitted: (_) => _handleLogin(),
                     ),
                     const SizedBox(height: 50),
                     SizedBox(
@@ -107,53 +169,24 @@ class LoginPage extends StatelessWidget {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF9A2C2C),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                         ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const MenuScreen(),
-                            ),
-                          );
-                        },
+                        onPressed: _handleLogin,
                         child: const Text(
                           'Login',
-                          style: TextStyle(
-                            fontSize: 24,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
                     const SizedBox(height: 15),
                     Row(
                       children: [
-                        Expanded(
-                          child: Divider(
-                            color: Colors.grey.shade400,
-                            thickness: 1.2,
-                          ),
-                        ),
+                        Expanded(child: Divider(color: Colors.grey.shade400, thickness: 1.2)),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            'or',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                          child: Text('or', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
                         ),
-                        Expanded(
-                          child: Divider(
-                            color: Colors.grey.shade400,
-                            thickness: 1.2,
-                          ),
-                        ),
+                        Expanded(child: Divider(color: Colors.grey.shade400, thickness: 1.2)),
                       ],
                     ),
                     const SizedBox(height: 40),
