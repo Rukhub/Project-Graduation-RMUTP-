@@ -90,4 +90,13 @@ class DataService {
       floorRooms[floor]!.add(roomName);
     }
   }
+
+  // ลบห้องออกจากชั้น
+  void deleteRoom(int floor, String roomName) {
+    if (floorRooms.containsKey(floor)) {
+      floorRooms[floor]!.remove(roomName);
+      // ลบครุภัณฑ์ในห้องด้วย
+      roomEquipments.remove(roomName);
+    }
+  }
 }
