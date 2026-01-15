@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import 'equipment_detail_screen.dart';  // เพิ่มบรรทัดนี้
+import 'equipment_detail_screen.dart';
+import 'report_problem_screen.dart';
+import 'inspect_equipment_screen.dart';
+import 'data_service.dart';
+import 'app_drawer.dart';
 
 class KrupanRoomScreen extends StatefulWidget {
   final String roomName;
@@ -16,10 +20,27 @@ class KrupanRoomScreen extends StatefulWidget {
 }
 
 class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
-  // เก็บข้อมูลครุภัณฑ์ในห้อง
+  // เก็บข้อมูลครุภัณฑ์ในห้อง (ตอนนี้ดึงจาก DataService)
   List<Map<String, dynamic>> equipmentList = [];
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   
-  // รายการประเภทครุภัณฑ์ที่สามารถเพิ่ม/ลบได้
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  void _loadData() {
+    setState(() {
+      equipmentList = DataService().getEquipmentsInRoom(widget.roomName);
+    });
+  }
+  
+  // Filter ที่เลือก
+  String selectedTypeFilter = 'ทั้งหมด';
+  String selectedStatusFilter = 'ทั้งหมด';
+  
+  // รายการประเภทครุภัณฑ์
   List<Map<String, dynamic>> equipmentTypes = [
     {'name': 'หน้าจอ', 'icon': Icons.monitor, 'color': Color(0xFF5593E4)},
     {'name': 'PC', 'icon': Icons.computer, 'color': Color(0xFF99CD60)},
@@ -27,15 +48,31 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     {'name': 'คีย์บอร์ด', 'icon': Icons.keyboard, 'color': Color(0xFFE44F5A)},
   ];
 
-  // ฟังก์ชันคำนวณจำนวนครุภัณฑ์ทั้งหมด
-  int get totalEquipmentQuantity {
-    return equipmentList.fold(0, (sum, item) => sum + (item['quantity'] as int));
+  // รายการสถานะ
+  List<Map<String, dynamic>> statusList = [
+    {'name': 'ปกติ', 'color': Color(0xFF99CD60), 'icon': Icons.check_circle},
+    {'name': 'ชำรุด', 'color': Color(0xFFE44F5A), 'icon': Icons.cancel},
+    {'name': 'อยู่ระหว่างซ่อม', 'color': Color(0xFFFECC52), 'icon': Icons.build_circle},
+  ];
+
+  // กรองครุภัณฑ์ตาม Filter
+  List<Map<String, dynamic>> get filteredEquipmentList {
+    return equipmentList.where((item) {
+      bool matchType = selectedTypeFilter == 'ทั้งหมด' || item['type'] == selectedTypeFilter;
+      bool matchStatus = selectedStatusFilter == 'ทั้งหมด' || item['status'] == selectedStatusFilter;
+      return matchType && matchStatus;
+    }).toList();
   }
+
+  // จำนวนครุภัณฑ์ทั้งหมด
+  int get totalEquipmentCount => equipmentList.length;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.grey.shade100,
+      drawer: const AppDrawer(),
       appBar: AppBar(
         backgroundColor: const Color(0xFF9A2C2C),
         leading: IconButton(
@@ -70,7 +107,9 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.menu, color: Colors.white, size: 30),
-            onPressed: () {},
+            onPressed: () {
+              _scaffoldKey.currentState?.openDrawer();
+            },
           ),
           const SizedBox(width: 10),
         ],
@@ -95,7 +134,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           _buildInfoCard(
             icon: Icons.inventory_2,
             title: 'จำนวนครุภัณฑ์',
-            value: '$totalEquipmentQuantity ชิ้น (${equipmentList.length} รายการ)',
+            value: '$totalEquipmentCount ชิ้น',
             color: const Color(0xFF5593E4),
           ),
           const SizedBox(height: 25),
@@ -119,7 +158,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '$totalEquipmentQuantity ชิ้น',
+                  '${filteredEquipmentList.length} ชิ้น',
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -131,11 +170,15 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           ),
           const SizedBox(height: 15),
 
+          // Filter ประเภท
+          _buildFilterSection(),
+          const SizedBox(height: 15),
+
           // แสดงรายการครุภัณฑ์ หรือ Empty State
-          equipmentList.isEmpty
+          filteredEquipmentList.isEmpty
               ? _buildEmptyState()
               : Column(
-                  children: equipmentList
+                  children: filteredEquipmentList
                       .asMap()
                       .entries
                       .map((entry) => _buildEquipmentCard(entry.key, entry.value))
@@ -169,6 +212,187 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               heroTag: 'add_equipment',
               shape: const CircleBorder(),
               child: const Icon(Icons.add, size: 40, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ส่วน Filter (Dropdown)
+  Future<void> _navigateToReport(int index, Map<String, dynamic> equipment) async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ReportProblemScreen(
+          equipment: equipment,
+          roomName: widget.roomName,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      _updateEquipmentState(index, result);
+    }
+  }
+
+  Future<void> _navigateToInspect(int index, Map<String, dynamic> equipment) async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => InspectEquipmentScreen(
+          equipment: equipment,
+          roomName: widget.roomName,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      _updateEquipmentState(index, result);
+    }
+  }
+
+  void _updateEquipmentState(int index, Map<String, dynamic> result) {
+    setState(() {
+      Map<String, dynamic> item = equipmentList[index];
+      
+      if (result['status'] != null) item['status'] = result['status'];
+      if (result['inspectorName'] != null) item['inspectorName'] = result['inspectorName'];
+      if (result['inspectorImages'] != null) item['inspectorImages'] = result['inspectorImages'];
+      
+      // อัปเดตข้อมูลผู้แจ้ง
+      if (result['reporterName'] != null) {
+        item['reporterName'] = result['reporterName'];
+      } else if (result.containsKey('reporterName')) {
+        item['reporterName'] = null;
+      }
+      
+      if (result['reportReason'] != null) {
+        item['reportReason'] = result['reportReason'];
+      } else if (result.containsKey('reportReason')) {
+        item['reportReason'] = null;
+      }
+      
+      if (result['reportImages'] != null) {
+        item['reportImages'] = result['reportImages'];
+      } else if (result.containsKey('reportImages')) {
+        item['reportImages'] = [];
+      }
+      
+      // บันทึกลง Global DataService
+      DataService().updateEquipment(widget.roomName, item);
+    });
+  }
+
+  Widget _buildFilterSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Dropdown ประเภท
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ประเภท',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: DropdownButton<String>(
+                    value: selectedTypeFilter,
+                    isExpanded: true,
+                    underline: const SizedBox(),
+                    icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF9A2C2C)),
+                    style: const TextStyle(fontSize: 14, color: Colors.black87),
+                    items: [
+                      const DropdownMenuItem(value: 'ทั้งหมด', child: Text('ทั้งหมด')),
+                      ...equipmentTypes.map((type) => DropdownMenuItem(
+                        value: type['name'] as String,
+                        child: Row(
+                          children: [
+                            Icon(type['icon'] as IconData, size: 18, color: type['color'] as Color),
+                            const SizedBox(width: 8),
+                            Text(type['name'] as String),
+                          ],
+                        ),
+                      )),
+                    ],
+                    onChanged: (value) {
+                      setState(() => selectedTypeFilter = value!);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Dropdown สถานะ
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'สถานะ',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: DropdownButton<String>(
+                    value: selectedStatusFilter,
+                    isExpanded: true,
+                    underline: const SizedBox(),
+                    icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF9A2C2C)),
+                    style: const TextStyle(fontSize: 14, color: Colors.black87),
+                    items: [
+                      const DropdownMenuItem(value: 'ทั้งหมด', child: Text('ทั้งหมด')),
+                      ...statusList.map((status) => DropdownMenuItem(
+                        value: status['name'] as String,
+                        child: Row(
+                          children: [
+                            Icon(status['icon'] as IconData, size: 18, color: status['color'] as Color),
+                            const SizedBox(width: 8),
+                            Text(status['name'] as String),
+                          ],
+                        ),
+                      )),
+                    ],
+                    onChanged: (value) {
+                      setState(() => selectedStatusFilter = value!);
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -247,6 +471,14 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     IconData equipmentIcon = typeData['icon'] as IconData;
     Color equipmentColor = typeData['color'] as Color;
 
+    // หา status color
+    var statusData = statusList.firstWhere(
+      (status) => status['name'] == equipment['status'],
+      orElse: () => {'name': 'ปกติ', 'color': Color(0xFF99CD60), 'icon': Icons.check_circle},
+    );
+    Color statusColor = statusData['color'] as Color;
+    IconData statusIcon = statusData['icon'] as IconData;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
@@ -261,19 +493,46 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         ],
       ),
       child: ListTile(
-        onTap: () {
-          Navigator.push(
+        onTap: () async {
+          final result = await Navigator.push<Map<String, dynamic>>(
             context,
             MaterialPageRoute(
               builder: (context) => EquipmentDetailScreen(
-                equipment: {
-                  ...equipment,
-                  'id': 'EQ${(index + 1).toString().padLeft(4, '0')}',
-                },
+                equipment: equipment,
                 roomName: widget.roomName,
               ),
             ),
           );
+          // ถ้ามีการเปลี่ยนแปลง อัปเดตข้อมูลทั้งหมด
+          if (result != null) {
+            int realIndex = equipmentList.indexWhere((item) => item['id'] == equipment['id']);
+            if (realIndex != -1) {
+              setState(() {
+                if (result['status'] != null) {
+                  equipmentList[realIndex]['status'] = result['status'];
+                }
+                if (result['inspectorName'] != null) {
+                  equipmentList[realIndex]['inspectorName'] = result['inspectorName'];
+                }
+                if (result['inspectorImages'] != null) {
+                  equipmentList[realIndex]['inspectorImages'] = result['inspectorImages'];
+                }
+                if (result['reporterName'] != null) {
+                  equipmentList[realIndex]['reporterName'] = result['reporterName'];
+                } else if (result.containsKey('reporterName')) {
+                  equipmentList[realIndex]['reporterName'] = null;
+                }
+                if (result['reportReason'] != null) {
+                  equipmentList[realIndex]['reportReason'] = result['reportReason'];
+                } else if (result.containsKey('reportReason')) {
+                  equipmentList[realIndex]['reportReason'] = null;
+                }
+                if (result['reportImages'] != null) {
+                  equipmentList[realIndex]['reportImages'] = result['reportImages'];
+                }
+              });
+            }
+          }
         },
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         leading: Container(
@@ -285,34 +544,53 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           child: Icon(equipmentIcon, color: equipmentColor, size: 26),
         ),
         title: Text(
-          equipment['name'],
+          equipment['id'] ?? 'ไม่ระบุรหัส',
           style: const TextStyle(
-            fontSize: 17,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
             color: Colors.black87,
           ),
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.category, size: 14, color: Colors.grey.shade500),
-              const SizedBox(width: 5),
-              Text(
-                equipment['type'],
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                ),
+              Row(
+                children: [
+                  Icon(Icons.category, size: 14, color: Colors.grey.shade500),
+                  const SizedBox(width: 5),
+                  Text(
+                    equipment['type'] ?? '',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 15),
-              Icon(Icons.numbers, size: 14, color: Colors.grey.shade500),
-              const SizedBox(width: 5),
-              Text(
-                'จำนวน: ${equipment['quantity']}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
+              const SizedBox(height: 6),
+              // แสดงสถานะ
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(statusIcon, size: 14, color: statusColor),
+                    const SizedBox(width: 5),
+                    Text(
+                      equipment['status'] ?? 'ปกติ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -321,15 +599,29 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // ปุ่มแจ้งปัญหา
+            IconButton(
+              tooltip: 'แจ้งปัญหา',
+              icon: Icon(Icons.report_problem_outlined, color: Colors.orange.shade700, size: 22),
+              onPressed: () => _navigateToReport(index, equipment),
+            ),
+             // ปุ่มตรวจสอบ
+            IconButton(
+              tooltip: 'ตรวจสอบ',
+              icon: const Icon(Icons.verified_outlined, color: Colors.green, size: 22),
+              onPressed: () => _navigateToInspect(index, equipment),
+            ),
             // ปุ่มแก้ไข
             IconButton(
+              tooltip: 'แก้ไข',
               icon: const Icon(Icons.edit_outlined, color: Color(0xFF5593E4), size: 22),
               onPressed: () => _showEditEquipmentDialog(index, equipment),
             ),
             // ปุ่มลบ
             IconButton(
+              tooltip: 'ลบ',
               icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
-              onPressed: () => _showDeleteConfirmation(index, equipment['name']),
+              onPressed: () => _showDeleteConfirmation(index, equipment['id'] ?? ''),
             ),
           ],
         ),
@@ -339,6 +631,11 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
 
   // Empty State เมื่อไม่มีครุภัณฑ์
   Widget _buildEmptyState() {
+    String emptyMessage = 'ยังไม่มีครุภัณฑ์ในห้องนี้';
+    if (selectedTypeFilter != 'ทั้งหมด' || selectedStatusFilter != 'ทั้งหมด') {
+      emptyMessage = 'ไม่พบครุภัณฑ์ตาม Filter ที่เลือก';
+    }
+    
     return Container(
       margin: const EdgeInsets.only(top: 20),
       padding: const EdgeInsets.all(40),
@@ -356,49 +653,52 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           ),
           const SizedBox(height: 20),
           Text(
-            'ยังไม่มีครุภัณฑ์ในห้องนี้',
+            emptyMessage,
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.grey.shade700,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
           Text(
-            'กดปุ่ม + ด้านล่างเพื่อเพิ่มครุภัณฑ์',
+            equipmentList.isEmpty ? 'กดปุ่ม + ด้านล่างเพื่อเพิ่มครุภัณฑ์' : 'ลองเปลี่ยน Filter ดู',
             style: TextStyle(
               fontSize: 15,
               color: Colors.grey.shade500,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 25),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF9A2C2C).withOpacity(0.08),
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(
-                color: const Color(0xFF9A2C2C).withOpacity(0.2),
-                width: 1.5,
+          if (equipmentList.isEmpty) ...[
+            const SizedBox(height: 25),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9A2C2C).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: const Color(0xFF9A2C2C).withOpacity(0.2),
+                  width: 1.5,
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.touch_app, color: Color(0xFF9A2C2C), size: 20),
+                  SizedBox(width: 10),
+                  Text(
+                    'เริ่มต้นเพิ่มครุภัณฑ์เลย',
+                    style: TextStyle(
+                      color: Color(0xFF9A2C2C),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.touch_app, color: Color(0xFF9A2C2C), size: 20),
-                SizedBox(width: 10),
-                Text(
-                  'เริ่มต้นเพิ่มครุภัณฑ์เลย',
-                  style: TextStyle(
-                    color: Color(0xFF9A2C2C),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -493,7 +793,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     IconData selectedIcon = Icons.devices_other;
     Color selectedColor = const Color(0xFF9A2C2C);
 
-    // ไอคอนที่เลือกได้
     final List<IconData> availableIcons = [
       Icons.devices_other,
       Icons.headphones,
@@ -509,7 +808,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
       Icons.air,
     ];
 
-    // สีที่เลือกได้
     final List<Color> availableColors = [
       const Color(0xFF9A2C2C),
       const Color(0xFF5593E4),
@@ -540,7 +838,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ชื่อประเภท
                     TextField(
                       controller: typeNameController,
                       decoration: InputDecoration(
@@ -555,8 +852,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
-                    // เลือกไอคอน
                     Text('เลือกไอคอน', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
                     const SizedBox(height: 10),
                     Wrap(
@@ -586,8 +881,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                       }).toList(),
                     ),
                     const SizedBox(height: 20),
-
-                    // เลือกสี
                     Text('เลือกสี', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
                     const SizedBox(height: 10),
                     Wrap(
@@ -662,9 +955,9 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
 
   // Dialog เพิ่มครุภัณฑ์
   void _showAddEquipmentDialog() {
-    final TextEditingController nameController = TextEditingController();
-    final TextEditingController quantityController = TextEditingController(text: '1');
+    final TextEditingController idController = TextEditingController();
     String selectedType = equipmentTypes.first['name'] as String;
+    String selectedStatus = 'ปกติ';
 
     showDialog(
       context: context,
@@ -683,14 +976,15 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ชื่อครุภัณฑ์
+                    // รหัสครุภัณฑ์
                     TextField(
-                      controller: nameController,
+                      controller: idController,
                       decoration: InputDecoration(
-                        labelText: 'ชื่อครุภัณฑ์',
-                        hintText: 'เช่น Monitor Dell 24"',
-                        prefixIcon: const Icon(Icons.edit, color: Color(0xFF9A2C2C)),
+                        labelText: 'รหัสครุภัณฑ์',
+                        hintText: 'เช่น 1-104-7440-006-0006/013-67',
+                        prefixIcon: const Icon(Icons.qr_code, color: Color(0xFF9A2C2C)),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -703,6 +997,8 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                     const SizedBox(height: 18),
 
                     // ประเภท
+                    Text('ประเภท', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                    const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
                         border: Border.all(color: Colors.grey.shade400),
@@ -739,22 +1035,48 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                     ),
                     const SizedBox(height: 18),
 
-                    // จำนวน
-                    TextField(
-                      controller: quantityController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'จำนวน',
-                        hintText: '1',
-                        prefixIcon: const Icon(Icons.format_list_numbered, color: Color(0xFF9A2C2C)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF9A2C2C), width: 2),
-                        ),
-                      ),
+                    // สถานะ
+                    Text('สถานะ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: statusList.map((status) {
+                        final isSelected = selectedStatus == status['name'];
+                        return InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              selectedStatus = status['name'] as String;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? (status['color'] as Color).withOpacity(0.2) : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? status['color'] as Color : Colors.grey.shade300,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(status['icon'] as IconData, size: 18, color: status['color'] as Color),
+                                const SizedBox(width: 6),
+                                Text(
+                                  status['name'] as String,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: status['color'] as Color,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ],
                 ),
@@ -766,18 +1088,18 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (nameController.text.isNotEmpty) {
+                    if (idController.text.isNotEmpty) {
                       setState(() {
                         equipmentList.add({
-                          'name': nameController.text,
+                          'id': idController.text,
                           'type': selectedType,
-                          'quantity': int.tryParse(quantityController.text) ?? 1,
+                          'status': selectedStatus,
                         });
                       });
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('เพิ่ม ${nameController.text} สำเร็จ'),
+                          content: Text('เพิ่ม ${idController.text} สำเร็จ'),
                           backgroundColor: Colors.green,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -799,11 +1121,11 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     );
   }
 
- // Dialog แก้ไขครุภัณฑ์
+  // Dialog แก้ไขครุภัณฑ์
   void _showEditEquipmentDialog(int index, Map<String, dynamic> equipment) {
-    final TextEditingController nameController = TextEditingController(text: equipment['name']);
-    final TextEditingController quantityController = TextEditingController(text: equipment['quantity'].toString());
-    String selectedType = equipment['type'];
+    final TextEditingController idController = TextEditingController(text: equipment['id']);
+    String selectedType = equipment['type'] as String;
+    String selectedStatus = equipment['status'] ?? 'ปกติ';
 
     showDialog(
       context: context,
@@ -822,17 +1144,15 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ชื่อครุภัณฑ์
+                    // รหัสครุภัณฑ์
                     TextField(
-                      controller: nameController,
+                      controller: idController,
                       decoration: InputDecoration(
-                        labelText: 'ชื่อครุภัณฑ์',
-                        hintText: 'เช่น Monitor Dell 24"',
-                        prefixIcon: const Icon(Icons.edit, color: Color(0xFF5593E4)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        labelText: 'รหัสครุภัณฑ์',
+                        prefixIcon: const Icon(Icons.qr_code, color: Color(0xFF5593E4)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: Color(0xFF5593E4), width: 2),
@@ -842,6 +1162,8 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                     const SizedBox(height: 18),
 
                     // ประเภท
+                    Text('ประเภท', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                    const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
                         border: Border.all(color: Colors.grey.shade400),
@@ -858,11 +1180,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                             value: type['name'] as String,
                             child: Row(
                               children: [
-                                Icon(
-                                  type['icon'] as IconData,
-                                  size: 20,
-                                  color: type['color'] as Color,
-                                ),
+                                Icon(type['icon'] as IconData, size: 20, color: type['color'] as Color),
                                 const SizedBox(width: 10),
                                 Text(type['name'] as String, style: const TextStyle(fontSize: 16)),
                               ],
@@ -878,22 +1196,48 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                     ),
                     const SizedBox(height: 18),
 
-                    // จำนวน
-                    TextField(
-                      controller: quantityController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'จำนวน',
-                        hintText: '1',
-                        prefixIcon: const Icon(Icons.format_list_numbered, color: Color(0xFF5593E4)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF5593E4), width: 2),
-                        ),
-                      ),
+                    // สถานะ
+                    Text('สถานะ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: statusList.map((status) {
+                        final isSelected = selectedStatus == status['name'];
+                        return InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              selectedStatus = status['name'] as String;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? (status['color'] as Color).withOpacity(0.2) : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? status['color'] as Color : Colors.grey.shade300,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(status['icon'] as IconData, size: 18, color: status['color'] as Color),
+                                const SizedBox(width: 6),
+                                Text(
+                                  status['name'] as String,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: status['color'] as Color,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ],
                 ),
@@ -905,19 +1249,23 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (nameController.text.isNotEmpty) {
-                      setState(() {
-                        equipmentList[index] = {
-                          'name': nameController.text,
-                          'type': selectedType,
-                          'quantity': int.tryParse(quantityController.text) ?? 1,
-                        };
-                      });
+                    if (idController.text.isNotEmpty) {
+                      // หา index จริงใน equipmentList
+                      int realIndex = equipmentList.indexWhere((item) => item['id'] == equipment['id']);
+                      if (realIndex != -1) {
+                        setState(() {
+                          equipmentList[realIndex] = {
+                            'id': idController.text,
+                            'type': selectedType,
+                            'status': selectedStatus,
+                          };
+                        });
+                      }
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('แก้ไข ${nameController.text} สำเร็จ'),
-                          backgroundColor: Colors.orange,
+                        const SnackBar(
+                          content: Text('แก้ไขสำเร็จ'),
+                          backgroundColor: Colors.green,
                           behavior: SnackBarBehavior.floating,
                         ),
                       );
@@ -938,8 +1286,8 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     );
   }
 
-  // Dialog ยืนยันการลบ
-  void _showDeleteConfirmation(int index, String equipmentName) {
+  // Dialog ยืนยันลบ
+  void _showDeleteConfirmation(int index, String id) {
     showDialog(
       context: context,
       builder: (context) {
@@ -947,13 +1295,13 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: const [
-              Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
               SizedBox(width: 10),
-              Text('ยืนยันการลบ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              Text('ยืนยันการลบ', style: TextStyle(fontSize: 20)),
             ],
           ),
           content: Text(
-            'คุณต้องการลบ "$equipmentName" ใช่หรือไม่?',
+            'คุณต้องการลบ\n"$id"\nใช่หรือไม่?\n\nการลบจะไม่สามารถกู้คืนได้',
             style: const TextStyle(fontSize: 16),
           ),
           actions: [
@@ -963,22 +1311,25 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                setState(() {
-                  equipmentList.removeAt(index);
-                });
+                // หา index จริงใน equipmentList
+                int realIndex = equipmentList.indexWhere((item) => item['id'] == id);
+                if (realIndex != -1) {
+                  setState(() {
+                    equipmentList.removeAt(realIndex);
+                  });
+                }
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('ลบ $equipmentName สำเร็จ'),
+                    content: Text('ลบ $id สำเร็จ'),
                     backgroundColor: Colors.red,
                     behavior: SnackBarBehavior.floating,
                   ),
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: const Text('ลบ', style: TextStyle(color: Colors.white, fontSize: 16)),
             ),

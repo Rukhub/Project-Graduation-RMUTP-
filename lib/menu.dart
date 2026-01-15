@@ -1,13 +1,26 @@
 import 'package:flutter/material.dart';
-import 'krupan.dart'; // ✅ เพิ่มบรรทัดนี้เท่านั้น
+import 'krupan.dart';
+import 'add_equipment_quick.dart';
+import 'report_problem_screen.dart';
+import 'inspect_equipment_screen.dart';
+import 'app_drawer.dart';
 
-class MenuScreen extends StatelessWidget {
+class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
+
+  @override
+  State<MenuScreen> createState() => _MenuScreenState();
+}
+
+class _MenuScreenState extends State<MenuScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.grey.shade100,
+      drawer: const AppDrawer(),
 
       // ===== APP BAR =====
       appBar: AppBar(
@@ -31,7 +44,9 @@ class MenuScreen extends StatelessWidget {
             padding: const EdgeInsets.only(right: 25), // ⭐ ลดจากขอบขวา
             child: IconButton(
               icon: const Icon(Icons.menu, color: Colors.white, size: 36),
-              onPressed: () {},
+              onPressed: () {
+                _scaffoldKey.currentState?.openDrawer();
+              },
             ),
           ),
         ],
@@ -89,17 +104,34 @@ class MenuScreen extends StatelessWidget {
             MenuItem(
               imageUrl: 'https://cdn-icons-png.flaticon.com/512/11873/11873385.png',
               title: 'เพิ่มอุปกรณ์',
-              onTap: () {},
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddEquipmentQuickScreen(),
+                  ),
+                );
+              },
             ),
             MenuItem(
               imageUrl: 'https://cdn-icons-png.flaticon.com/256/4960/4960785.png',
               title: 'แจ้งปัญหา / ขัดข้อง',
-              onTap: () {},
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ReportProblemScreen()),
+                );
+              },
             ),
             MenuItem(
               imageUrl: 'https://cdn-icons-png.flaticon.com/256/11726/11726423.png',
               title: 'ตรวจสอบอุปกรณ์',
-              onTap: () {},
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const InspectEquipmentScreen()),
+                );
+              },
             ),
           ],
         ),
