@@ -254,6 +254,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
               ),
             );
           },
+          onLongPress: () => _showDeleteRoomDialog(roomName),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -272,30 +273,37 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   ),
                 ),
                 const SizedBox(width: 20),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      roomName,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2D3142),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        roomName,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3142),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'ชั้น $selectedFloor',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        color: Colors.grey.shade500,
+                      const SizedBox(height: 4),
+                      Text(
+                        'ชั้น $selectedFloor',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          color: Colors.grey.shade500,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const Spacer(),
+                // ปุ่มลบ
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.red.shade300, size: 24),
+                  tooltip: 'ลบห้อง',
+                  onPressed: () => _showDeleteRoomDialog(roomName),
+                ),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -313,6 +321,87 @@ class _KrupanScreenState extends State<KrupanScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // Dialog ยืนยันลบห้อง
+  void _showDeleteRoomDialog(String roomName) {
+    // นับจำนวนครุภัณฑ์ในห้อง
+    int equipmentCount = _dataService.getEquipmentsInRoom(roomName).length;
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text('ยืนยันการลบห้อง', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'คุณต้องการลบห้อง "$roomName" ใช่หรือไม่?',
+                style: const TextStyle(fontSize: 16),
+              ),
+              if (equipmentCount > 0) ...[
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.red.shade600, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'ห้องนี้มีครุภัณฑ์ $equipmentCount ชิ้น\nครุภัณฑ์ทั้งหมดจะถูกลบไปด้วย',
+                          style: TextStyle(fontSize: 13, color: Colors.red.shade700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey, fontSize: 16)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _dataService.deleteRoom(selectedFloor, roomName);
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('ลบห้อง "$roomName" สำเร็จ'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+          ],
+        );
+      },
     );
   }
 }
