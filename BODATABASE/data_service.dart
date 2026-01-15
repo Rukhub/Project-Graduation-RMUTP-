@@ -1,407 +1,250 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:flutter/material.dart';
+import 'menu.dart';
+import 'data_service.dart';
 
-class DataService {
-  // Singleton Pattern
-  static final DataService _instance = DataService._internal();
-  factory DataService() => _instance;
-  DataService._internal();
+void main() async {
+  // ต้องเพิ่ม 2 บรรทัดนี้เพื่อให้ใช้ async ใน main ได้
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // โหลดข้อมูลห้องจาก database ก่อน
+  await DataService().loadFloorRooms();
+  
+  runApp(const MyApp());
+}
 
-  static Database? _database;
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
-  // Get database instance
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: LoginPage(),
+    );
   }
+}
 
-  // Initialize database
-  Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'equipment_database.db');
-    
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: (db, version) async {
-        // สร้างตาราง users
-        await db.execute('''
-          CREATE TABLE users(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL,
-            name TEXT NOT NULL
-          )
-        ''');
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
-        // สร้างตาราง rooms
-        await db.execute('''
-          CREATE TABLE rooms(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            floor INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            UNIQUE(floor, name)
-          )
-        ''');
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
 
-        // สร้างตาราง equipment
-        await db.execute('''
-          CREATE TABLE equipment(
-            id TEXT PRIMARY KEY,
-            room_name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            status TEXT NOT NULL,
-            inspector_name TEXT,
-            reporter_name TEXT,
-            report_reason TEXT,
-            FOREIGN KEY (room_name) REFERENCES rooms (name) ON DELETE CASCADE
-          )
-        ''');
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isLoading = false; // เพิ่มตัวแปรสำหรับแสดง loading
 
-        // สร้างตาราง equipment_images (รูปอุปกรณ์ปกติ)
-        await db.execute('''
-          CREATE TABLE equipment_images(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            equipment_id TEXT NOT NULL,
-            image_path TEXT NOT NULL,
-            FOREIGN KEY (equipment_id) REFERENCES equipment (id) ON DELETE CASCADE
-          )
-        ''');
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF9A2C2C),
+      body: Column(
+        children: [
+          const SizedBox(height: 100),
+          Image.network(
+            'https://eng.rmutp.ac.th/web2558/wp-content/uploads/2024/03/%E0%B9%80%E0%B8%9F%E0%B8%B7%E0%B8%AD%E0%B8%87%E0%B9%81%E0%B8%94%E0%B8%872-350x350.png',
+            height: 200,
+          ),
+          const SizedBox(height: 30),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(40),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(50)),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const Text(
+                      'ระบบจัดเก็บข้อมูลครุภัณฑ์',
+                      style: TextStyle(
+                        color: Color(0xFF9A2C2C),
+                        fontSize: 25,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    TextField(
+                      controller: _usernameController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.person),
+                        hintText: 'Username',
+                        filled: true,
+                        fillColor: Colors.white,
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: const Icon(Icons.visibility_off),
+                        hintText: 'Password',
+                        filled: true,
+                        fillColor: Colors.white,
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 50),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 60,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF9A2C2C),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        onPressed: _isLoading ? null : () async {
+                          setState(() {
+                            _isLoading = true;
+                          });
 
-        // สร้างตาราง inspector_images (รูปจากผู้ตรวจ)
-        await db.execute('''
-          CREATE TABLE inspector_images(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            equipment_id TEXT NOT NULL,
-            image_path TEXT NOT NULL,
-            FOREIGN KEY (equipment_id) REFERENCES equipment (id) ON DELETE CASCADE
-          )
-        ''');
+                          try {
+                            final result = await DataService().login(
+                              _usernameController.text,
+                              _passwordController.text,
+                            );
 
-        // สร้างตาราง report_images (รูปจากผู้แจ้ง)
-        await db.execute('''
-          CREATE TABLE report_images(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            equipment_id TEXT NOT NULL,
-            image_path TEXT NOT NULL,
-            FOREIGN KEY (equipment_id) REFERENCES equipment (id) ON DELETE CASCADE
-          )
-        ''');
-
-        // เพิ่มข้อมูลเริ่มต้น
-        await _insertInitialData(db);
-      },
+                            if (result != null) {
+                              // Login สำเร็จ
+                              if (!mounted) return;
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const MenuScreen(),
+                                ),
+                              );
+                            } else {
+                              // Login ไม่สำเร็จ
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Username หรือ Password ไม่ถูกต้อง!'),
+                                  backgroundColor: Colors.red,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('เกิดข้อผิดพลาด: $e'),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isLoading = false;
+                              });
+                            }
+                          }
+                        },
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Login',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                            thickness: 1.2,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'or',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                            thickness: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                    Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: Colors.white,
+                          child: ClipOval(
+                            child: Image.network(
+                              'https://cdn-icons-png.flaticon.com/512/2991/2991148.png',
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Login with your others account',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  // เพิ่มข้อมูลเริ่มต้น
-  Future<void> _insertInitialData(Database db) async {
-    // เพิ่ม user ทดสอบ
-    await db.insert('users', {
-      'username': 'admin',
-      'password': '1234',
-      'name': 'ผู้ดูแลระบบ'
-    });
-
-    // เพิ่มห้อง
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1951'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1952'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1953'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1954'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1955'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1956'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1957'});
-    await db.insert('rooms', {'floor': 1, 'name': 'Room 1958'});
-    await db.insert('rooms', {'floor': 3, 'name': 'Room 3001'});
-    await db.insert('rooms', {'floor': 3, 'name': 'Room 3002'});
-    await db.insert('rooms', {'floor': 4, 'name': 'Room 4001'});
-    await db.insert('rooms', {'floor': 5, 'name': 'Room 5001'});
-    await db.insert('rooms', {'floor': 5, 'name': 'Room 5002'});
-    await db.insert('rooms', {'floor': 5, 'name': 'Room 5003'});
-    await db.insert('rooms', {'floor': 6, 'name': 'Room 6001'});
-
-    // เพิ่มครุภัณฑ์ตัวอย่าง
-    await db.insert('equipment', {
-      'id': '1-104-7440-006-0006/013-67',
-      'room_name': 'Room 1951',
-      'type': 'หน้าจอ',
-      'status': 'ปกติ',
-    });
-
-    await db.insert('equipment', {
-      'id': '1-104-7440-006-0006/014-67',
-      'room_name': 'Room 1951',
-      'type': 'PC',
-      'status': 'ปกติ',
-    });
-
-    await db.insert('equipment', {
-      'id': '1-104-7440-006-0006/015-67',
-      'room_name': 'Room 1951',
-      'type': 'คีย์บอร์ด',
-      'status': 'ชำรุด',
-      'reporter_name': 'สมชาย ใจดี',
-      'report_reason': 'ปุ่มกดไม่ติด',
-    });
-
-    await db.insert('equipment', {
-      'id': '1-104-7440-006-0007/001-67',
-      'room_name': 'Room 1952',
-      'type': 'PC',
-      'status': 'ปกติ',
-    });
-  }
-
-  // ===== USER/LOGIN METHODS =====
-
-  // Login method
-  Future<Map<String, dynamic>?> login(String username, String password) async {
-    final db = await database;
-    final List<Map<String, dynamic>> result = await db.query(
-      'users',
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, password],
-    );
-
-    if (result.isNotEmpty) {
-      return result.first;
-    }
-    return null;
-  }
-
-  // ===== ROOM METHODS =====
-
-  // ดึงข้อมูลห้องทั้งหมดแยกตามชั้น (แบบ sync สำหรับความเข้ากันได้)
-  Map<int, List<String>> floorRooms = {
-    1: [], 2: [], 3: [], 4: [], 5: [], 6: [],
-  };
-
-  // โหลดข้อมูลห้องจาก database
-  Future<void> loadFloorRooms() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('rooms', orderBy: 'floor, name');
-
-    floorRooms = {
-      1: [], 2: [], 3: [], 4: [], 5: [], 6: [],
-    };
-
-    for (var map in maps) {
-      int floor = map['floor'] as int;
-      String name = map['name'] as String;
-      if (floorRooms.containsKey(floor)) {
-        floorRooms[floor]!.add(name);
-      }
-    }
-  }
-
-  // เพิ่มห้องใหม่
-  Future<void> addRoom(int floor, String roomName) async {
-    final db = await database;
-    await db.insert(
-      'rooms',
-      {'floor': floor, 'name': roomName},
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
-    await loadFloorRooms(); // โหลดข้อมูลใหม่
-  }
-
-  // ลบห้อง
-  Future<void> deleteRoom(int floor, String roomName) async {
-    final db = await database;
-    await db.delete(
-      'rooms',
-      where: 'floor = ? AND name = ?',
-      whereArgs: [floor, roomName],
-    );
-    await loadFloorRooms(); // โหลดข้อมูลใหม่
-  }
-
-  // ===== EQUIPMENT METHODS =====
-
-  // ดึงครุภัณฑ์ทั้งหมดในห้อง
-  Future<List<Map<String, dynamic>>> getEquipmentsInRoomAsync(String roomName) async {
-    final db = await database;
-    
-    // ดึงข้อมูลครุภัณฑ์
-    final List<Map<String, dynamic>> equipments = await db.query(
-      'equipment',
-      where: 'room_name = ?',
-      whereArgs: [roomName],
-    );
-
-    // เพิ่มรูปภาพให้แต่ละครุภัณฑ์
-    for (var equipment in equipments) {
-      String equipmentId = equipment['id'];
-      
-      // ดึงรูปอุปกรณ์ปกติ
-      final images = await db.query(
-        'equipment_images',
-        columns: ['image_path'],
-        where: 'equipment_id = ?',
-        whereArgs: [equipmentId],
-      );
-      equipment['images'] = images.map((e) => e['image_path'] as String).toList();
-
-      // ดึงรูปจากผู้ตรวจ
-      final inspectorImages = await db.query(
-        'inspector_images',
-        columns: ['image_path'],
-        where: 'equipment_id = ?',
-        whereArgs: [equipmentId],
-      );
-      equipment['inspectorImages'] = inspectorImages.map((e) => e['image_path'] as String).toList();
-
-      // ดึงรูปจากผู้แจ้ง
-      final reportImages = await db.query(
-        'report_images',
-        columns: ['image_path'],
-        where: 'equipment_id = ?',
-        whereArgs: [equipmentId],
-      );
-      equipment['reportImages'] = reportImages.map((e) => e['image_path'] as String).toList();
-    }
-
-    return equipments;
-  }
-
-  // ดึงครุภัณฑ์แบบ sync (สำหรับความเข้ากันได้กับโค้ดเดิม)
-  List<Map<String, dynamic>> getEquipmentsInRoom(String roomName) {
-    // ใช้แค่คืนค่า list ว่างก่อน แล้วให้โหลดข้อมูลจริงด้วย getEquipmentsInRoomAsync
-    return [];
-  }
-
-  // เพิ่มครุภัณฑ์
-  Future<void> addEquipment(String roomName, Map<String, dynamic> equipment) async {
-    final db = await database;
-    
-    // เพิ่มข้อมูลครุภัณฑ์
-    await db.insert(
-      'equipment',
-      {
-        'id': equipment['id'],
-        'room_name': roomName,
-        'type': equipment['type'],
-        'status': equipment['status'],
-        'inspector_name': equipment['inspectorName'],
-        'reporter_name': equipment['reporterName'],
-        'report_reason': equipment['reportReason'],
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-
-    String equipmentId = equipment['id'];
-
-    // เพิ่มรูปอุปกรณ์ปกติ
-    if (equipment['images'] != null) {
-      for (String imagePath in equipment['images']) {
-        await db.insert('equipment_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-
-    // เพิ่มรูปจากผู้ตรวจ
-    if (equipment['inspectorImages'] != null) {
-      for (String imagePath in equipment['inspectorImages']) {
-        await db.insert('inspector_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-
-    // เพิ่มรูปจากผู้แจ้ง
-    if (equipment['reportImages'] != null) {
-      for (String imagePath in equipment['reportImages']) {
-        await db.insert('report_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-  }
-
-  // อัปเดตครุภัณฑ์
-  Future<void> updateEquipment(String roomName, Map<String, dynamic> equipment) async {
-    final db = await database;
-    String equipmentId = equipment['id'];
-
-    // อัปเดตข้อมูลครุภัณฑ์
-    await db.update(
-      'equipment',
-      {
-        'room_name': roomName,
-        'type': equipment['type'],
-        'status': equipment['status'],
-        'inspector_name': equipment['inspectorName'],
-        'reporter_name': equipment['reporterName'],
-        'report_reason': equipment['reportReason'],
-      },
-      where: 'id = ?',
-      whereArgs: [equipmentId],
-    );
-
-    // ลบและเพิ่มรูปอุปกรณ์ปกติใหม่
-    await db.delete('equipment_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
-    if (equipment['images'] != null) {
-      for (String imagePath in equipment['images']) {
-        await db.insert('equipment_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-
-    // ลบและเพิ่มรูปจากผู้ตรวจใหม่
-    await db.delete('inspector_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
-    if (equipment['inspectorImages'] != null) {
-      for (String imagePath in equipment['inspectorImages']) {
-        await db.insert('inspector_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-
-    // ลบและเพิ่มรูปจากผู้แจ้งใหม่
-    await db.delete('report_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
-    if (equipment['reportImages'] != null) {
-      for (String imagePath in equipment['reportImages']) {
-        await db.insert('report_images', {
-          'equipment_id': equipmentId,
-          'image_path': imagePath,
-        });
-      }
-    }
-  }
-
-  // ลบครุภัณฑ์
-  Future<void> deleteEquipment(String roomName, String id) async {
-    final db = await database;
-    await db.delete(
-      'equipment',
-      where: 'id = ? AND room_name = ?',
-      whereArgs: [id, roomName],
-    );
-  }
-
-  // ===== UTILITY METHODS =====
-
-  // ล้างข้อมูลทั้งหมด (สำหรับ testing)
-  Future<void> clearAllData() async {
-    final db = await database;
-    await db.delete('report_images');
-    await db.delete('inspector_images');
-    await db.delete('equipment_images');
-    await db.delete('equipment');
-    await db.delete('rooms');
-    await db.delete('users');
-  }
-
-  // ปิด database
-  Future<void> close() async {
-    final db = await database;
-    await db.close();
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 }
