@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'menu.dart';
+import 'api_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -37,7 +38,9 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  bool _isLoading = false;
+
+  void _handleLogin() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -49,14 +52,31 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // ตรวจสอบ login แบบง่าย (hardcoded ตาม database ที่คุณแสดง)
-    // username: admin, password: 1234
-    if (username == 'admin' && password == '1234') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MenuScreen()),
-      );
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // เรียกใช้ ApiService เพื่อ Login
+    final user = await ApiService().login(username, password);
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (user != null) {
+      // Login สำเร็จ
+      // บันทึกข้อมูลผู้ใช้
+      ApiService().currentUser = user;
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MenuScreen()),
+        );
+      }
     } else {
+      // Login ไม่สำเร็จ
       setState(() {
         _errorMessage = 'Username หรือ Password ไม่ถูกต้อง';
       });
@@ -172,10 +192,12 @@ class _LoginPageState extends State<LoginPage> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                         ),
                         onPressed: _handleLogin,
-                        child: const Text(
-                          'Login',
-                          style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
+                        child: _isLoading
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : const Text(
+                                'Login',
+                                style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 15),

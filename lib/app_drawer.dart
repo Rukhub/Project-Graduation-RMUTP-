@@ -4,6 +4,7 @@ import 'krupan.dart';
 import 'add_equipment_quick.dart';
 import 'inspect_equipment_screen.dart';
 import 'report_problem_screen.dart';
+import 'api_service.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -247,8 +248,14 @@ class AppDrawer extends StatelessWidget {
   }
 
   void _showProfileDialog(BuildContext context) {
-    final nameController = TextEditingController(text: 'ผู้ใช้งาน');
-    final emailController = TextEditingController(text: 'user@rmutp.ac.th');
+    // ดึงข้อมูลผู้ใช้จาก ApiService
+    final user = ApiService().currentUser;
+    final name = user?['fullname'] ?? 'ผู้ใช้งาน';
+    final username = user?['username'] ?? 'user';
+    final email = '$username@rmutp.ac.th';
+
+    final nameController = TextEditingController(text: name);
+    final emailController = TextEditingController(text: email);
 
     showDialog(
       context: context,
