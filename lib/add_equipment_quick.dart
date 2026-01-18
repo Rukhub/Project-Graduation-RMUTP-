@@ -81,7 +81,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                     border: Border.all(color: Colors.grey.shade300),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha:0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -106,7 +106,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF9A2C2C).withOpacity(0.1),
+                                color: const Color(0xFF9A2C2C).withValues(alpha:0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
@@ -156,7 +156,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -174,7 +174,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF9A2C2C).withOpacity(0.1),
+                    color: const Color(0xFF9A2C2C).withValues(alpha:0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(Icons.meeting_room, color: Color(0xFF9A2C2C), size: 28),
@@ -206,7 +206,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF99CD60).withOpacity(0.15),
+                    color: const Color(0xFF99CD60).withValues(alpha:0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.add, color: Color(0xFF99CD60), size: 24),
@@ -279,7 +279,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF9A2C2C).withOpacity(0.1),
+                      color: const Color(0xFF9A2C2C).withValues(alpha:0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -369,7 +369,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             decoration: BoxDecoration(
-                              color: isSelected ? (status['color'] as Color).withOpacity(0.2) : Colors.grey.shade100,
+                              color: isSelected ? (status['color'] as Color).withValues(alpha:0.2) : Colors.grey.shade100,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isSelected ? status['color'] as Color : Colors.grey.shade300,

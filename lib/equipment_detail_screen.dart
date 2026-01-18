@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'api_service.dart';
 
 class EquipmentDetailScreen extends StatefulWidget {
   final Map<String, dynamic> equipment;
@@ -36,26 +37,73 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     super.initState();
     // โหลดข้อมูลจาก equipment
     if (widget.equipment['images'] != null) {
-      imagePaths = List<String>.from(widget.equipment['images']);
+      if (widget.equipment['images'] is List) {
+        imagePaths = List<String>.from(widget.equipment['images']);
+      }
     }
     if (widget.equipment['status'] != null) {
       equipmentStatus = widget.equipment['status'];
     }
     originalStatus = equipmentStatus;
 
-    // โหลดข้อมูลผู้ตรวจ
-    inspectorName = widget.equipment['inspectorName'];
+    // โหลดข้อมูลผู้ตรวจ (Handle snake_case from API)
+    inspectorName = widget.equipment['inspectorName'] ?? widget.equipment['checker_name'];
     if (widget.equipment['inspectorImages'] != null) {
-      inspectorImages = List<String>.from(widget.equipment['inspectorImages']);
+       // ... existing logic for list ...
+       if (widget.equipment['inspectorImages'] is List) {
+         inspectorImages = List<String>.from(widget.equipment['inspectorImages']);
+       }
     }
 
     // โหลดข้อมูลผู้แจ้ง
-    reporterName = widget.equipment['reporterName'];
-    reportReason = widget.equipment['reportReason'];
+    reporterName = widget.equipment['reporterName'] ?? widget.equipment['reporter_name'];
+    
+    // Check for reason keys: reportReason (local), report_reason (DB), issue_detail (DB)
+    reportReason = widget.equipment['reportReason'] ?? 
+                   widget.equipment['report_reason'] ?? 
+                   widget.equipment['issue_detail'];
+                   
     if (widget.equipment['reportImages'] != null) {
-      reportImages = List<String>.from(widget.equipment['reportImages']);
+       if (widget.equipment['reportImages'] is List) {
+         reportImages = List<String>.from(widget.equipment['reportImages']);
+       }
+    }
+    
+    // 🔥 Fetch real report data from API if status is Broken/Repairing
+    if (shouldShowReporter) {
+      _loadReportData();
     }
   }
+
+  Future<void> _loadReportData() async {
+    try {
+      final reports = await ApiService().getReports();
+      
+      // Filter reports for this asset
+      String myId = widget.equipment['asset_id'] ?? widget.equipment['id'];
+      
+      final myReports = reports.where((r) => 
+        r['asset_id'].toString() == myId.toString()
+      ).toList();
+      
+      if (myReports.isNotEmpty) {
+        // Sort by ID descending (Latest first) assuming higher ID = newer
+        myReports.sort((a, b) => (b['report_id'] ?? 0).compareTo(a['report_id'] ?? 0));
+        
+        final latestReport = myReports.first;
+        if (mounted) {
+          setState(() {
+            reporterName = latestReport['reporter_name'];
+            reportReason = latestReport['issue_detail'];
+            // reportImages can be handled here if API provides them
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading report data: $e');
+    }
+  }
+
 
   bool get hasStatusChanged => equipmentStatus != originalStatus;
 
@@ -201,7 +249,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.15) : Colors.grey.shade100,
+          color: isSelected ? color.withValues(alpha:0.15) : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? color : Colors.grey.shade300,
@@ -232,9 +280,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    Color statusColor = equipmentStatus == 'ปกติ'
+    Color statusColor = originalStatus == 'ปกติ'
         ? Colors.green
-        : equipmentStatus == 'ชำรุด'
+        : originalStatus == 'ชำรุด'
             ? Colors.red
             : Colors.orange;
 
@@ -254,7 +302,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         title: Column(
           children: [
             Text(
-              widget.equipment['id'] ?? 'ไม่ระบุรหัส',
+              widget.equipment['asset_id'] ?? widget.equipment['id'] ?? 'ไม่ระบุรหัส',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -331,7 +379,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -360,7 +408,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha:0.1),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
@@ -407,7 +455,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -431,7 +479,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          _buildInfoRow(Icons.qr_code, 'รหัสครุภัณฑ์', widget.equipment['id'] ?? '-', const Color(0xFF5593E4)),
+          _buildInfoRow(Icons.qr_code, 'รหัสครุภัณฑ์', widget.equipment['asset_id'] ?? widget.equipment['id'] ?? '-', const Color(0xFF5593E4)),
           const Divider(height: 30),
           _buildInfoRow(Icons.category, 'ประเภท', widget.equipment['type'] ?? '-', const Color(0xFF99CD60)),
           const Divider(height: 30),
@@ -452,7 +500,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha:0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -463,13 +511,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.15),
+                color: statusColor.withValues(alpha:0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                equipmentStatus == 'ปกติ'
+                originalStatus == 'ปกติ'
                     ? Icons.check_circle
-                    : equipmentStatus == 'ชำรุด'
+                    : originalStatus == 'ชำรุด'
                         ? Icons.error
                         : Icons.build_circle,
                 color: statusColor,
@@ -490,7 +538,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    equipmentStatus,
+                    originalStatus,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -516,7 +564,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -530,7 +578,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF5593E4).withOpacity(0.15),
+                  color: const Color(0xFF5593E4).withValues(alpha:0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.person_search, color: Color(0xFF5593E4), size: 24),
@@ -618,7 +666,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         border: Border.all(color: Colors.red.shade100, width: 2),
         boxShadow: [
           BoxShadow(
-            color: Colors.red.withOpacity(0.08),
+            color: Colors.red.withValues(alpha:0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -632,54 +680,80 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.15),
+                  color: Colors.red.withValues(alpha:0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.report_problem, color: Colors.red, size: 24),
               ),
               const SizedBox(width: 12),
-              Text(
-                'การแจ้งปัญหา',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'การแจ้งปัญหา',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  const Text(
+                    'รายงานข้อขัดข้อง',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 20),
+          
           // ชื่อผู้แจ้ง
           Container(
-            padding: const EdgeInsets.all(15),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              borderRadius: BorderRadius.circular(12),
+              color: const Color(0xFFFFF0F0), // Soft red background
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               children: [
-                const Icon(Icons.person, color: Colors.red, size: 22),
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  radius: 18,
+                  child: Icon(Icons.person, color: Colors.red.shade400, size: 20),
+                ),
                 const SizedBox(width: 12),
-                Text(
-                  reporterName ?? 'ยังไม่มีผู้แจ้ง',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: reporterName != null ? Colors.black87 : Colors.grey.shade500,
-                    fontStyle: reporterName != null ? FontStyle.normal : FontStyle.italic,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ผู้แจ้ง',
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade300),
+                    ),
+                    Text(
+                      reporterName ?? 'ยังไม่มีผู้แจ้ง',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade900,
+                        fontStyle: reporterName != null ? FontStyle.normal : FontStyle.italic,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          // เหตุผล
-          if (reportReason != null) ...[
+          
+          // เหตุผล (Report Reason)
+          // Always show this section if there's a problem, show placeholder if empty but status is broken
+          if (reportReason != null || equipmentStatus == 'ชำรุด') ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(15),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.grey.shade200),
               ),
               child: Column(
@@ -687,35 +761,39 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.description, color: Colors.grey.shade600, size: 18),
+                      Icon(Icons.notes, color: Colors.red.shade400, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        'เหตุผลที่แจ้ง',
+                        'รายละเอียด / สาเหตุ',
                         style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade800,
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    reportReason!,
-                    style: const TextStyle(
+                    (reportReason != null && reportReason!.isNotEmpty) 
+                        ? reportReason! 
+                        : 'ไม่ได้ระบุรายละเอียด',
+                    style: TextStyle(
                       fontSize: 15,
-                      color: Colors.black87,
+                      color: Colors.grey.shade800,
+                      height: 1.4,
                     ),
                   ),
                 ],
               ),
             ),
           ],
+
           // รูปภาพหลักฐาน
           if (reportImages.isNotEmpty) ...[
             const SizedBox(height: 15),
             Text(
-              'รูปภาพหลักฐาน',
+              'หลักฐานภาพถ่าย',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -733,12 +811,19 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                     width: 80,
                     margin: const EdgeInsets.only(right: 10),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.shade200, width: 2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade100),
                       image: DecorationImage(
                         image: FileImage(File(reportImages[index])),
                         fit: BoxFit.cover,
                       ),
+                      boxShadow: [
+                         BoxShadow(
+                          color: Colors.black.withValues(alpha:0.05),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                         )
+                      ]
                     ),
                   );
                 },
@@ -763,7 +848,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF99CD60).withOpacity(0.4),
+            color: const Color(0xFF99CD60).withValues(alpha:0.4),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -774,7 +859,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha:0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(Icons.info_outline, color: Colors.white, size: 24),
@@ -795,7 +880,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 Text(
                   '$originalStatus → $equipmentStatus',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha:0.9),
                     fontSize: 13,
                   ),
                 ),
@@ -884,10 +969,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       onTap: onAddImage,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF9A2C2C).withOpacity(0.1),
+          color: const Color(0xFF9A2C2C).withValues(alpha:0.1),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color(0xFF9A2C2C).withOpacity(0.3),
+            color: const Color(0xFF9A2C2C).withValues(alpha:0.3),
             width: 2,
           ),
         ),
@@ -907,7 +992,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             image: DecorationImage(
-              image: FileImage(File(images[index])),
+              image: images[index].startsWith('http')
+                  ? NetworkImage(images[index])
+                  : FileImage(File(images[index])) as ImageProvider,
               fit: BoxFit.cover,
             ),
           ),

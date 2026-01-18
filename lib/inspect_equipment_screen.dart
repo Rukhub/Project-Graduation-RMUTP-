@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'api_service.dart';
 import 'data_service.dart';
 
 class InspectEquipmentScreen extends StatefulWidget {
@@ -52,6 +53,14 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
       if (widget.equipment!['inspectorName'] != null) {
         _nameController.text = widget.equipment!['inspectorName'];
       }
+    }
+    
+    // Autofill inspector name if empty
+    if (_nameController.text.isEmpty) {
+        final currentUser = ApiService().currentUser;
+        if (currentUser != null && currentUser['fullname'] != null) {
+          _nameController.text = currentUser['fullname'];
+        }
     }
   }
 
@@ -131,7 +140,31 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
       result['reportImages'] = [];
     }
 
-    // บันทึกลง Global Data ผ่าน DataService
+    // เรียก API อัปเดตข้อมูลใน Database จริง
+    if (currentEquipment!['id'] != null) {
+      // Prepare data for API (Backend expects snake_case mostly)
+      Map<String, dynamic> apiData = {
+        'asset_id': currentEquipment!['asset_id'] ?? currentEquipment!['id'], // Prefer asset_id
+        'type': currentEquipment!['type'] ?? currentEquipment!['asset_type'],
+        'brand_model': currentEquipment!['brand_model'] ?? '',
+        'location_id': currentEquipment!['location_id'] ?? 0,
+        'status': selectedStatus,
+        'inspectorName': _nameController.text,
+        'images': inspectorImages, // API service handles image_url from list
+      };
+
+      // Call API (Fire and forget or await? Better await to show loading/error if needed, but for now just call)
+      // Note: `id` for updateAsset is the database ID (int/string)
+      ApiService().updateAsset(currentEquipment!['id'].toString(), apiData).then((response) {
+        if (!response['success']) {
+          debugPrint('❌ Failed to update asset in DB: ${response['message']}');
+        } else {
+          debugPrint('✅ Asset updated in DB successfully');
+        }
+      });
+    }
+
+    // บันทึกลง Global Data ผ่าน DataService (เพื่อให้ App รู้ทันที)
     Map<String, dynamic> updatedItem = Map.from(currentEquipment!);
     updatedItem.addAll(result);
     // ต้องระบุ RoomName
@@ -224,7 +257,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -365,7 +398,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
-                BoxShadow(color: Colors.blue.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2)),
+                BoxShadow(color: Colors.blue.withValues(alpha:0.2), blurRadius: 8, offset: const Offset(0, 2)),
               ],
             ),
             child: const Icon(Icons.computer, color: Color(0xFF5593E4), size: 32),
@@ -376,7 +409,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  currentEquipment?['id'] ?? 'ไม่ระบุรหัส',
+                  currentEquipment?['asset_id'] ?? currentEquipment?['id'] ?? 'ไม่ระบุรหัส',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
                 ),
                 const SizedBox(height: 4),
@@ -443,7 +476,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 10, offset: const Offset(0, 4)),
             ],
           ),
           child: Column(
@@ -479,7 +512,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha:0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -517,7 +550,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       decoration: BoxDecoration(
                         color: isSelected 
-                            ? (status['color'] as Color).withOpacity(0.15) 
+                            ? (status['color'] as Color).withValues(alpha:0.15) 
                             : Colors.grey.shade50,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
@@ -562,14 +595,14 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
 
         Container(
           padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 10, offset: const Offset(0, 4))]),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(children: const [Icon(Icons.photo_camera, color: Color(0xFF5593E4), size: 24), SizedBox(width: 10), Text('รูปภาพการตรวจสอบ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))]),
-                  Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: const Color(0xFF5593E4).withOpacity(0.1), borderRadius: BorderRadius.circular(15)), child: Text('${inspectorImages.length} รูป', style: const TextStyle(color: Color(0xFF5593E4), fontWeight: FontWeight.bold, fontSize: 13))),
+                  Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: const Color(0xFF5593E4).withValues(alpha:0.1), borderRadius: BorderRadius.circular(15)), child: Text('${inspectorImages.length} รูป', style: const TextStyle(color: Color(0xFF5593E4), fontWeight: FontWeight.bold, fontSize: 13))),
                 ],
               ),
               const SizedBox(height: 15),
@@ -614,7 +647,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
   }
 
   BoxDecoration _buildDropdownDecoration() {
-    return BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]);
+    return BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 10, offset: const Offset(0, 4))]);
   }
 
   Widget _buildEmptyImageState() {
@@ -639,7 +672,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
   }
 
   Widget _buildAddImageButton() {
-    return InkWell(onTap: _showImageSourceDialog, child: Container(decoration: BoxDecoration(color: const Color(0xFF5593E4).withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF5593E4).withOpacity(0.3), width: 2)), child: const Icon(Icons.add_photo_alternate, color: Color(0xFF5593E4), size: 35)));
+    return InkWell(onTap: _showImageSourceDialog, child: Container(decoration: BoxDecoration(color: const Color(0xFF5593E4).withValues(alpha:0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF5593E4).withValues(alpha:0.3), width: 2)), child: const Icon(Icons.add_photo_alternate, color: Color(0xFF5593E4), size: 35)));
   }
 
   Widget _buildImageCard(int index) {

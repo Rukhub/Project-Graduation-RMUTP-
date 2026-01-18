@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'api_service.dart';
 import 'data_service.dart';
 
 class ReportProblemScreen extends StatefulWidget {
@@ -42,6 +43,12 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       currentEquipment = widget.equipment;
       selectedRoom = widget.roomName;
       selectedEquipmentId = widget.equipment!['id'];
+    }
+    
+    // Autofill reporter name from logged-in user
+    final currentUser = ApiService().currentUser;
+    if (currentUser != null && currentUser['fullname'] != null) {
+      _nameController.text = currentUser['fullname'];
     }
   }
 
@@ -109,7 +116,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     );
   }
 
-  void _submitReport() {
+  Future<void> _submitReport() async {
     if (currentEquipment == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('กรุณาเลือกครุภัณฑ์ที่ต้องการแจ้งปัญหา')),
@@ -131,35 +138,55 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       return;
     }
 
-    // สร้าง Map ข้อมูลที่จะส่งกลับ
-    Map<String, dynamic> result = {
-      'status': 'ชำรุด',
-      'reporterName': _nameController.text,
-      'reportReason': _reasonController.text,
-      'reportImages': reportImages,
-      // ส่ง ID กลับไปด้วยเผื่อเอาไปใช้ค้นหา
-      'id': currentEquipment!['id'],
-    };
-    
-    // บันทึกลง Global Data ผ่าน DataService
-    Map<String, dynamic> updatedItem = Map.from(currentEquipment!);
-    updatedItem.addAll(result);
-    // ต้องระบุ RoomName
-    String effectiveRoomName = selectedRoom ?? widget.roomName ?? '';
-    if (effectiveRoomName.isNotEmpty) {
-       _dataService.updateEquipment(effectiveRoomName, updatedItem);
-    }
-    
-    // ส่งข้อมูลกลับ
-    Navigator.pop(context, result);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ส่งแจ้งปัญหาสำเร็จ'),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
+    // Show Loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.red)),
     );
+
+    // Call API
+    // Use asset_id if available, otherwise id
+    String assetId = (currentEquipment!['asset_id'] ?? currentEquipment!['id']).toString();
+    
+    final result = await ApiService().reportProblem(
+      assetId,
+      _nameController.text,
+      _reasonController.text,
+    );
+
+    // Close Loading
+    if (mounted) Navigator.pop(context);
+
+    if (result['success']) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ส่งแจ้งปัญหาสำเร็จ'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // Return updated data to previous screen to update UI immediately
+        Navigator.pop(context, {
+          'status': 'ชำรุด', // Backend updates this automatically
+          'reporterName': _nameController.text,
+          'reportReason': _reasonController.text, // Pass reason back
+          'issue_detail': _reasonController.text, // Fallback key
+        });
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message']), 
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -240,7 +267,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha:0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -381,7 +408,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.2),
+                  color: Colors.red.withValues(alpha:0.2),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -429,7 +456,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha:0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -481,7 +508,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha:0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -533,7 +560,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha:0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -610,7 +637,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.red.withOpacity(0.4),
+                color: Colors.red.withValues(alpha:0.4),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -669,7 +696,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       border: Border.all(color: Colors.grey.shade300),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.05),
+          color: Colors.black.withValues(alpha:0.05),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
