@@ -1,365 +1,208 @@
-import 'package:flutter/material.dart';
-import 'menu.dart';
-import 'krupan.dart';
-import 'add_equipment_quick.dart';
-import 'inspect_equipment_screen.dart';
-import 'report_problem_screen.dart';
+const express = require('express');
+const mysql = require('mysql2');
+const cors = require('cors');
 
-class AppDrawer extends StatelessWidget {
-  const AppDrawer({super.key});
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-  @override
-  Widget build(BuildContext context) {
-    return Drawer(
-      backgroundColor: const Color(0xFF9A2C2C),
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'R',
-                        style: TextStyle(
-                          fontFamily: 'InknutAntiqua',
-                          fontSize: 30,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF9A2C2C),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'RMUTP',
-                        style: TextStyle(
-                          fontFamily: 'InknutAntiqua',
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        'ระบบจัดการครุภัณฑ์',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Divider(color: Colors.white24, height: 1),
-            const SizedBox(height: 10),
+// 1. เชื่อมต่อกับ MySQL
+const db = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: 'password123', 
+  database: 'krupandb' 
+});
 
-            // ระบบจัดการ Section
-            _buildSectionHeader('ระบบจัดการ'),
-            const SizedBox(height: 5),
-
-            // Menu Items
-            _buildMenuItem(
-              context,
-              icon: Icons.home_outlined,
-              title: 'หน้าแรก',
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const MenuScreen()),
-                  (route) => false,
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.inventory_2_outlined,
-              title: 'ครุภัณฑ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const KrupanScreen()),
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.add_circle_outline,
-              title: 'เพิ่มอุปกรณ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const AddEquipmentQuickScreen()),
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.verified_outlined,
-              title: 'ตรวจสอบอุปกรณ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const InspectEquipmentScreen()),
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.report_problem_outlined,
-              title: 'แจ้งปัญหา',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ReportProblemScreen()),
-                );
-              },
-            ),
-
-            const Divider(color: Colors.white24, height: 30),
-
-            // โปรไฟล์ Section
-            _buildSectionHeader('บัญชี'),
-            const SizedBox(height: 5),
-            
-            _buildMenuItem(
-              context,
-              icon: Icons.person_outline,
-              title: 'ตั้งค่าโปรไฟล์',
-              onTap: () {
-                Navigator.pop(context);
-                _showProfileDialog(context);
-              },
-            ),
-
-            const Spacer(),
-
-            // ออกจากระบบ
-            Container(
-              margin: const EdgeInsets.all(20),
-              child: Material(
-                color: Colors.white.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showLogoutDialog(context);
-                  },
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.logout, color: Colors.white, size: 22),
-                        SizedBox(width: 10),
-                        Text(
-                          'ออกจากระบบ',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
+db.connect((err) => {
+  if (err) {
+    console.error('❌ Database connection failed:', err);
+    return;
   }
+  console.log('✅ Connected to MySQL Database');
+});
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Divider(color: Colors.white24, height: 1),
-          ),
-        ],
-      ),
-    );
-  }
+// --- 🔐 ระบบผู้ใช้งาน (Login & Roles) ---
 
-  Widget _buildMenuItem(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 14),
-          child: Row(
-            children: [
-              Icon(icon, color: Colors.white, size: 24),
-              const SizedBox(width: 15),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const sql = "SELECT user_id, username, fullname, role, is_approved FROM users WHERE username = ? AND password = ?";
+  
+  db.query(sql, [username, password], (err, results) => {
+    if (err) return res.status(500).json(err);
+    if (results.length > 0) {
+      const user = results[0];
+      if (user.is_approved === 0) {
+        return res.status(403).json({ message: "บัญชีนี้รอการอนุมัติจากแอดมินโบ" });
+      }
+      res.json({ message: "เข้าสู่ระบบสำเร็จ!", user: user });
+    } else {
+      res.status(401).json({ message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
+    }
+  });
+});
 
-  void _showProfileDialog(BuildContext context) {
-    final nameController = TextEditingController(text: 'ผู้ใช้งาน');
-    final emailController = TextEditingController(text: 'user@rmutp.ac.th');
+// --- 📊 Dashboard & Stats ---
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.person, color: Color(0xFF9A2C2C), size: 28),
-              SizedBox(width: 10),
-              Text('ตั้งค่าโปรไฟล์', style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Avatar
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(Icons.person, color: Color(0xFF9A2C2C), size: 50),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: nameController,
-                decoration: InputDecoration(
-                  labelText: 'ชื่อ-นามสกุล',
-                  prefixIcon: const Icon(Icons.person_outline),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: emailController,
-                decoration: InputDecoration(
-                  labelText: 'อีเมล',
-                  prefixIcon: const Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('บันทึกโปรไฟล์สำเร็จ'),
-                    backgroundColor: Colors.green,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF9A2C2C),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('บันทึก', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
-    );
-  }
+app.get('/api/dashboard-stats', (req, res) => {
+  const sql = `
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'ปกติ' THEN 1 ELSE 0 END) as normal,
+      SUM(CASE WHEN status = 'ชำรุด' THEN 1 ELSE 0 END) as damaged
+    FROM assets`;
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json(err);
+    res.json(results[0]);
+  });
+});
 
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.logout, color: Colors.red, size: 28),
-              SizedBox(width: 10),
-              Text('ออกจากระบบ', style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: const Text(
-            'คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ?',
-            style: TextStyle(fontSize: 16),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                // Navigate to login or exit
-                Navigator.popUntil(context, (route) => route.isFirst);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('ออกจากระบบ', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
+// --- 📍 สถานที่ (Locations) ---
+
+app.get('/api/locations', (req, res) => {
+  db.query('SELECT * FROM locations ORDER BY floor, room_name', (err, results) => {
+    if (err) return res.status(500).json(err);
+    res.json(results);
+  });
+});
+
+app.post('/api/locations', (req, res) => {
+  const { floor, room_name } = req.body;
+  const sql = "INSERT INTO locations (floor, room_name) VALUES (?, ?)";
+  db.query(sql, [floor, room_name], (err, result) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    res.json({ success: true, location_id: result.insertId });
+  });
+});
+
+app.delete('/api/locations/:id', (req, res) => {
+  const { id } = req.params;
+  db.query("DELETE FROM locations WHERE location_id = ?", [id], (err, result) => {
+    if (err) {
+      if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+        return res.status(400).json({ message: "ลบไม่ได้! เพราะมีครุภัณฑ์ลงทะเบียนอยู่ในห้องนี้" });
+      }
+      return res.status(500).json(err);
+    }
+    res.json({ message: "ลบห้องสำเร็จ!" });
+  });
+});
+
+app.put('/api/locations/:id', (req, res) => {
+    const { id } = req.params;
+    const { floor, room_name } = req.body;
+    const sql = "UPDATE locations SET floor = ?, room_name = ? WHERE location_id = ?";
+    
+    db.query(sql, [floor, room_name, id], (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: 'Database error' });
+        res.json({ success: true, message: 'แก้ไขข้อมูลห้องสำเร็จ' });
+    });
+});
+
+// --- 📦 ครุภัณฑ์ (Assets) ---
+
+app.get('/api/assets/room/:location_id', (req, res) => {
+    const locationId = req.params.location_id;
+    const sql = 'SELECT * FROM assets WHERE location_id = ?';
+    db.query(sql, [locationId], (err, results) => {
+        if (err) return res.status(500).json({ message: 'Database error' });
+        res.json(results);
+    });
+});
+
+app.get('/api/assets/:assetId', (req, res) => {
+  const { assetId } = req.params;
+  const sql = `
+    SELECT a.*, l.room_name, l.floor 
+    FROM assets a
+    JOIN locations l ON a.location_id = l.location_id
+    WHERE a.asset_id = ?`;
+  db.query(sql, [assetId], (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (result.length === 0) return res.status(404).json({ message: "ไม่พบรหัสครุภัณฑ์นี้" });
+    res.json(result[0]);
+  });
+});
+
+app.post('/api/assets', (req, res) => {
+  const { asset_id, asset_type, brand_model, location_id, image_url } = req.body;
+  const sql = "INSERT INTO assets (asset_id, asset_type, brand_model, location_id, image_url) VALUES (?, ?, ?, ?, ?)";
+  db.query(sql, [asset_id, asset_type, brand_model, location_id, image_url], (err, result) => {
+    if (err) {
+        if (err.errno === 1062) return res.status(400).json({ message: "รหัสครุภัณฑ์นี้มีในระบบแล้ว" });
+        return res.status(500).json(err);
+    }
+    res.json({ message: "เพิ่มครุภัณฑ์สำเร็จ!" });
+  });
+});
+
+app.delete('/api/assets/:id', (req, res) => {
+    const assetId = req.params.id;
+    const sql = "DELETE FROM assets WHERE asset_id = ?";
+    db.query(sql, [assetId], (err, result) => {
+        if (err) return res.status(500).json({ message: "ลบไม่สำเร็จ", error: err });
+        res.json({ message: "ลบครุภัณฑ์เรียบร้อยแล้ว" });
+    });
+});
+
+// ⭐ จุดแก้ไข: เพิ่มฟิลด์ให้ครบตามที่รักส่งมาจากแอป
+app.put('/api/assets/:asset_id', (req, res) => {
+    const { asset_id } = req.params;
+    const { asset_type, brand_model, location_id, status, image_url, reporter_name, issue_detail } = req.body;
+    
+    const sql = `
+        UPDATE assets 
+        SET asset_type = ?, 
+            brand_model = ?, 
+            location_id = ?, 
+            status = ?, 
+            image_url = ?,
+            reporter_name = ?,
+            issue_detail = ?
+        WHERE asset_id = ?`;
+
+    db.query(sql, [asset_type, brand_model, location_id, status, image_url, reporter_name, issue_detail, asset_id], (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: 'Database error' });
+        res.json({ success: true, message: 'แก้ไขข้อมูลครุภัณฑ์สำเร็จ' });
+    });
+});
+
+// --- 🛠️ การตรวจสอบสภาพ & แจ้งซ่อม ---
+
+app.post('/api/check-logs', (req, res) => {
+  const { asset_id, checker_id, result_status, remark } = req.body;
+  const sqlLog = "INSERT INTO check_logs (asset_id, checker_id, result_status, remark) VALUES (?, ?, ?, ?)";
+  const sqlUpdateAsset = "UPDATE assets SET last_check_date = NOW(), status = ? WHERE asset_id = ?";
+
+  db.query(sqlLog, [asset_id, checker_id, result_status, remark], (err, result) => {
+    if (err) return res.status(500).json(err);
+    db.query(sqlUpdateAsset, [result_status, asset_id], (err2) => {
+      if (err2) return res.status(500).json(err2);
+      res.json({ message: "บันทึกการตรวจสอบเรียบร้อย!" });
+    });
+  });
+});
+
+app.post('/api/reports', (req, res) => {
+  const { asset_id, reporter_name, issue_detail } = req.body;
+  const sqlReport = "INSERT INTO reports (asset_id, reporter_name, issue_detail) VALUES (?, ?, ?)";
+  const sqlUpdateAsset = `
+    UPDATE assets 
+    SET status = 'ชำรุด', 
+        reporter_name = ?, 
+        issue_detail = ?, 
+        report_date = NOW() 
+    WHERE asset_id = ?`;
+
+  db.query(sqlReport, [asset_id, reporter_name, issue_detail], (err, result) => {
+    if (err) return res.status(500).json(err);
+    db.query(sqlUpdateAsset, [reporter_name, issue_detail, asset_id], (err2) => {
+      if (err2) return res.status(500).json(err2);
+      res.json({ message: "ส่งรายงานแจ้งซ่อมสำเร็จ!" });
+    });
+  });
+});
+
+app.listen(3000, () => {
+  console.log('✅ Backend Ready: http://localhost:3000');
+});
