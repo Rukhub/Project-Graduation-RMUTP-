@@ -30,7 +30,9 @@ class DataService {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL,
-            name TEXT NOT NULL
+            name TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            is_approved INTEGER DEFAULT 0
           )
         ''');
 
@@ -99,8 +101,17 @@ class DataService {
     // เพิ่ม user ทดสอบ
     await db.insert('users', {
       'username': 'admin',
-      'password': '1234',
-      'name': 'ผู้ดูแลระบบ',
+      'password': 'password',
+      'name': 'Admin User',
+      'role': 'admin',
+      'is_approved': 1,
+    });
+    await db.insert('users', {
+      'username': 'user',
+      'password': 'password',
+      'name': 'Standard User',
+      'role': 'user',
+      'is_approved': 1,
     });
 
     // เพิ่มห้อง
@@ -416,6 +427,74 @@ class DataService {
       where: 'id = ? AND room_name = ?',
       whereArgs: [id, roomName],
     );
+  }
+
+  // ===== USER MANAGEMENT METHODS =====
+
+  // Get all users
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    final db = await database;
+    return await db.query('users', orderBy: 'id ASC');
+  }
+
+  // Get pending users
+  Future<List<Map<String, dynamic>>> getPendingUsers() async {
+    final db = await database;
+    return await db.query('users', where: 'is_approved = 0', orderBy: 'id ASC');
+  }
+
+  // Approve user
+  Future<bool> approveUser(int userId) async {
+    try {
+      final db = await database;
+      await db.update(
+        'users',
+        {'is_approved': 1},
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Approve all pending users
+  Future<bool> approveAllUsers() async {
+    try {
+      final db = await database;
+      await db.update('users', {'is_approved': 1}, where: 'is_approved = 0');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Reject/Delete user
+  Future<bool> deleteUser(int userId) async {
+    try {
+      final db = await database;
+      await db.delete('users', where: 'id = ?', whereArgs: [userId]);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Update user role
+  Future<bool> updateUserRole(int userId, String newRole) async {
+    try {
+      final db = await database;
+      await db.update(
+        'users',
+        {'role': newRole},
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   // ===== UTILITY METHODS =====

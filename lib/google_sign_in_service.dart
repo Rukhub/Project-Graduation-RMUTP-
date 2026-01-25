@@ -6,12 +6,12 @@ class GoogleSignInService {
     scopes: ['email', 'profile'],
     // จำกัดเฉพาะอีเมล @rmutp.ac.th เท่านั้น
     hostedDomain: 'rmutp.ac.th',
-    // ⚠️ ต้องไปขอ Web Client ID จาก Google Cloud Console
-    // หรือใช้ค่านี้ชั่วคราว (ให้โบแทนด้วย Web Client ID จริง)
-    // serverClientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
+    // Web Client ID จาก Google Cloud Console
+    serverClientId:
+        '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com',
   );
 
-  /// ล็อกอินด้วย Google และคืนค่า GoogleSignInAccount (เฉพาะ @rmutp.ac.th)
+  /// ล็อกอินด้วย Google และคืนค่า GoogleSignInAccount (เฉพาะ @rmutp.ac.th)ห
   Future<GoogleSignInAccount?> signInWithGoogle() async {
     try {
       final GoogleSignInAccount? account = await _googleSignIn.signIn();

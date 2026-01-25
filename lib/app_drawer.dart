@@ -5,6 +5,7 @@ import 'add_equipment_quick.dart';
 import 'inspect_equipment_screen.dart';
 import 'report_problem_screen.dart';
 import 'api_service.dart';
+import 'admin/user_management_screen.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -95,34 +96,57 @@ class AppDrawer extends StatelessWidget {
                 );
               },
             ),
-            _buildMenuItem(
-              context,
-              icon: Icons.add_circle_outline,
-              title: 'เพิ่มอุปกรณ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AddEquipmentQuickScreen(),
-                  ),
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.verified_outlined,
-              title: 'ตรวจสอบอุปกรณ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const InspectEquipmentScreen(),
-                  ),
-                );
-              },
-            ),
+
+            // เมนูสำหรับ Admin เท่านั้น
+            if (ApiService().currentUser?['role'] == 'admin')
+              _buildMenuItem(
+                context,
+                icon: Icons.add_circle_outline,
+                title: 'เพิ่มอุปกรณ์',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AddEquipmentQuickScreen(),
+                    ),
+                  );
+                },
+              ),
+
+            // เมนูสำหรับ Admin เท่านั้น
+            if (ApiService().currentUser?['role'] == 'admin')
+              _buildMenuItem(
+                context,
+                icon: Icons.verified_outlined,
+                title: 'ตรวจสอบอุปกรณ์',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const InspectEquipmentScreen(),
+                    ),
+                  );
+                },
+              ),
+
+            if (ApiService().currentUser?['role'] == 'admin')
+              _buildMenuItem(
+                context,
+                icon: Icons.manage_accounts_outlined,
+                title: 'ระบบอนุมัติผู้ใช้',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const UserManagementScreen(),
+                    ),
+                  );
+                },
+              ),
+
             _buildMenuItem(
               context,
               icon: Icons.report_problem_outlined,

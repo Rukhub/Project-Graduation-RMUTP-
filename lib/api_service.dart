@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -81,30 +82,30 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+
         // กรณีที่ 1: Login สำเร็จ (มี user object)
         if (data['user'] != null) {
           debugPrint('✅ Google Login สำเร็จ!');
           currentUser = data['user'];
           return data['user'];
         }
-        
+
         // กรณีที่ 2: ลงทะเบียนใหม่สำเร็จ แต่ต้องรอ Approve (ไม่มี user object)
         if (data['user_id'] != null) {
           debugPrint('⏳ ลงทะเบียนสำเร็จ แต่ต้องรอ Admin อนุมัติ');
           return {
             'pending_approval': true,
-            'message': data['message'] ?? 'กรุณารอแอดมินอนุมัติ'
+            'message': data['message'] ?? 'กรุณารอแอดมินอนุมัติ',
           };
         }
       } else if (response.statusCode == 403) {
         final data = jsonDecode(response.body);
         debugPrint('❌ Error 403: ${data['message']}');
-        
+
         // ส่ง error message กลับไปให้ UI แสดง
         return {
           'error': true,
-          'message': data['message'] ?? 'เข้าใช้งานไม่ได้'
+          'message': data['message'] ?? 'เข้าใช้งานไม่ได้',
         };
       }
 
@@ -185,6 +186,10 @@ class ApiService {
       for (var asset in assets) {
         if (asset['asset_id'] == assetId) {
           debugPrint('✅ เจอครุภัณฑ์: ${asset['asset_id']}');
+          debugPrint(
+            '🧐 Asset Keys: ${asset.keys.toList()}',
+          ); // ดู Keys ทั้งหมดที่มี
+          if (asset['id'] == null) debugPrint('😱 NO ID FIELD FOUND!');
 
           // ดึงข้อมูล location มาเพิ่ม ถ้ามี location_id
           if (asset['location_id'] != null) {
@@ -283,8 +288,11 @@ class ApiService {
     try {
       debugPrint('🔄 กำลังแก้ไขครุภัณฑ์ ID (Database): $id');
 
+      final uri = Uri.parse('$baseUrl/assets/$id');
+      debugPrint('🚀 Sending PUT Request to: $uri'); // Log URL จริงที่ยิงออกไป
+
       final response = await http.put(
-        Uri.parse('$baseUrl/assets/$id'),
+        uri,
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
@@ -494,8 +502,9 @@ class ApiService {
   Future<Map<String, dynamic>> reportProblem(
     String assetId,
     String reporterName,
-    String issueDetail,
-  ) async {
+    String issueDetail, {
+    String? imageUrl, // เพิ่ม optional parameter
+  }) async {
     try {
       debugPrint('🔄 กำลังส่งรายงานแจ้งปัญหา: $assetId');
 
@@ -509,6 +518,7 @@ class ApiService {
           'asset_id': assetId,
           'reporter_name': reporterName,
           'issue_detail': issueDetail,
+          if (imageUrl != null) 'image_url': imageUrl, // ส่ง image_url ถ้ามี
         }),
       );
 
@@ -558,9 +568,9 @@ class ApiService {
   // บันทึกการตรวจสอบครุภัณฑ์ (Check Logs)
   Future<Map<String, dynamic>> createCheckLog({
     required String assetId,
-    required int checkerId,
-    required String resultStatus,
-    String? remark,
+    required int checkerId, // Bo ขอ checker_id
+    required String resultStatus, // Bo ขอ result_status
+    String? remark, // Bo ขอ remark
   }) async {
     try {
       debugPrint('🔄 กำลังบันทึกการตรวจสอบ: $assetId');
@@ -599,9 +609,9 @@ class ApiService {
   // ดึงประวัติการตรวจสอบ (Check Logs)
   Future<List<Map<String, dynamic>>> getCheckLogs(String assetId) async {
     try {
-      debugPrint('🔄 กำลังเรียก API: $baseUrl/check-logs?asset_id=$assetId');
+      debugPrint('🔄 กำลังเรียก API: $baseUrl/assets/$assetId/check-logs');
       final response = await http.get(
-        Uri.parse('$baseUrl/check-logs?asset_id=$assetId'),
+        Uri.parse('$baseUrl/assets/$assetId/check-logs'),
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
@@ -622,4 +632,288 @@ class ApiService {
   }
 
   Future<dynamic> verifyPassword(String text) async {}
+
+  // ดึงข้อมูล Dashboard Stats (4 Blocks)
+  Future<Map<String, dynamic>> getDashboardStats() async {
+    try {
+      debugPrint('🔄 กำลังเรียก API: $baseUrl/dashboard-stats');
+      final response = await http.get(
+        Uri.parse('$baseUrl/dashboard-stats'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Dashboard Stats Status: ${response.statusCode}');
+      debugPrint('📄 Stats Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'total': int.tryParse(data['total'].toString()) ?? 0,
+          'normal': int.tryParse(data['normal'].toString()) ?? 0,
+          'pending': int.tryParse(data['pending'].toString()) ?? 0,
+          'damaged': int.tryParse(data['damaged'].toString()) ?? 0,
+        };
+      }
+      return {'total': 0, 'normal': 0, 'pending': 0, 'damaged': 0};
+    } catch (e) {
+      debugPrint('🚨 Get dashboard stats error: $e');
+      return {'total': 0, 'normal': 0, 'pending': 0, 'damaged': 0};
+    }
+  }
+
+  // ========== User Management APIs (Bo's Backend) ==========
+
+  /// ดึงรายชื่อผู้ใช้ที่รออนุมัติ
+  /// GET /api/users/pending
+  Future<List<Map<String, dynamic>>> getPendingUsersFromAPI() async {
+    try {
+      debugPrint('🔄 กำลังดึงข้อมูลผู้ใช้ที่รออนุมัติจาก API...');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/pending'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Get Pending Users Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        debugPrint('✅ ดึงข้อมูล ${data.length} คนที่รออนุมัติ');
+        return data.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('🚨 Get pending users error: $e');
+      return [];
+    }
+  }
+
+  /// อนุมัติผู้ใช้ทั้งหมดที่รออยู่
+  /// PUT /api/users/approve-all
+  Future<Map<String, dynamic>> approveAllUsersAPI() async {
+    try {
+      debugPrint('🔄 กำลังอนุมัติผู้ใช้ทั้งหมด...');
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/users/approve-all'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Approve All Status: ${response.statusCode}');
+      debugPrint('📄 Response: ${response.body}');
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ ${data['message']}');
+        return {
+          'success': true,
+          'message': data['message'] ?? 'อนุมัติผู้ใช้งานทั้งหมดเรียบร้อยแล้ว',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'อนุมัติไม่สำเร็จ',
+      };
+    } catch (e) {
+      debugPrint('🚨 Approve all users error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// อนุมัติผู้ใช้รายบุคคล
+  /// PUT /api/users/approve/:id
+  Future<Map<String, dynamic>> approveUserAPI(int userId) async {
+    try {
+      debugPrint('🔄 กำลังอนุมัติผู้ใช้ ID: $userId');
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/users/approve/$userId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Approve User Status: ${response.statusCode}');
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ อนุมัติผู้ใช้สำเร็จ');
+        return {
+          'success': true,
+          'message': data['message'] ?? 'อนุมัติผู้ใช้งานเรียบร้อยแล้ว',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'อนุมัติไม่สำเร็จ',
+      };
+    } catch (e) {
+      debugPrint('🚨 Approve user error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// ดึงข้อมูลผู้ใช้ทั้งหมด
+  /// GET /api/users/all
+  Future<List<Map<String, dynamic>>> getAllUsersFromAPI() async {
+    try {
+      debugPrint('🔄 กำลังดึงข้อมูลผู้ใช้ทั้งหมดจาก API...');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/all'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Get All Users Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        debugPrint('✅ ดึงข้อมูล ${data.length} ผู้ใช้ทั้งหมด');
+        return data.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('🚨 Get all users error: $e');
+      return [];
+    }
+  }
+
+  /// เปลี่ยนตำแหน่งผู้ใช้งาน (Admin <-> Checker <-> User)
+  /// PUT /api/users/change-role/:id
+  Future<Map<String, dynamic>> changeUserRoleAPI(
+    int userId,
+    String newRole,
+  ) async {
+    try {
+      debugPrint('🔄 กำลังเปลี่ยนตำแหน่งผู้ใช้ ID: $userId เป็น $newRole');
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/users/change-role/$userId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: jsonEncode({'new_role': newRole}),
+      );
+
+      debugPrint('📡 Change Role Status: ${response.statusCode}');
+      debugPrint('📄 Response: ${response.body}');
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'เปลี่ยนตำแหน่งเรียบร้อยแล้ว',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'เปลี่ยนตำแหน่งไม่สำเร็จ',
+      };
+    } catch (e) {
+      debugPrint('🚨 Change role error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// อนุมัติผู้ใช้เฉพาะที่เลือก (Approve Selected Users)
+  /// PUT /api/users/approve-selected
+  Future<Map<String, dynamic>> approveSelectedUsersAPI(
+    List<int> userIds,
+  ) async {
+    try {
+      debugPrint('🔄 กำลังอนุมัติผู้ใช้ที่เลือก ${userIds.length} คน...');
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/users/approve-selected'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: jsonEncode({'user_ids': userIds}),
+      );
+
+      debugPrint('📡 Approve Selected Status: ${response.statusCode}');
+      debugPrint('📄 Response: ${response.body}');
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ ${data['message']}');
+        return {
+          'success': true,
+          'message': data['message'] ?? 'อนุมัติผู้ใช้ที่เลือกเรียบร้อยแล้ว',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'อนุมัติไม่สำเร็จ',
+      };
+    } catch (e) {
+      debugPrint('🚨 Approve selected users error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// อัปโหลดรูปภาพไปยัง Backend ของโบ
+  /// POST /api/upload
+  Future<String?> uploadImage(File imageFile) async {
+    try {
+      debugPrint('🔄 กำลังอัปโหลดรูปภาพ: ${imageFile.path}');
+
+      // สร้าง multipart request
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+
+      // เพิ่ม headers
+      request.headers.addAll({'ngrok-skip-browser-warning': 'true'});
+
+      // เพิ่มไฟล์รูปภาพ (key: 'image' ตามที่โบกำหนด)
+      request.files.add(
+        await http.MultipartFile.fromPath('image', imageFile.path),
+      );
+
+      // ส่ง request
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      debugPrint('📡 Upload Status: ${response.statusCode}');
+      debugPrint('📄 Response: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final imageUrl = data['image_url'] as String?;
+
+        if (imageUrl != null) {
+          debugPrint('✅ อัปโหลดสำเร็จ: $imageUrl');
+          return imageUrl;
+        }
+      }
+
+      debugPrint('❌ อัปโหลดไม่สำเร็จ');
+      return null;
+    } catch (e) {
+      debugPrint('🚨 Upload image error: $e');
+      return null;
+    }
+  }
 }

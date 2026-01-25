@@ -217,6 +217,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
 
     // Get checker_id from current user
     final currentUser = ApiService().currentUser;
+    // Bo Request: ใช้ checker_id (int)
     final checkerId = currentUser?['user_id'];
 
     if (checkerId == null) {
@@ -224,7 +225,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
       Navigator.pop(context);
       messenger.showSnackBar(
         const SnackBar(
-          content: Text('ไม่พบข้อมูลผู้ใช้ กรุณา login ใหม่'),
+          content: Text('ไม่พบข้อมูลรหัสผู้ใช้ (User ID) กรุณา login ใหม่'),
           backgroundColor: Colors.red,
         ),
       );
@@ -250,9 +251,22 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
         final Map<String, dynamic> updateData = Map.from(currentEquipment!);
         updateData['status'] = selectedStatus;
         updateData['inspectorName'] = _nameController.text.trim();
+
         // Ensure type compatibility
         if (updateData['type'] == null && updateData['asset_type'] != null) {
           updateData['type'] = updateData['asset_type'];
+        }
+
+        // Upload new images if added during inspection
+        if (inspectorImages.isNotEmpty) {
+          // Upload first image as main image (since backend limitation)
+          // In real app, loop upload. Here take first for simplicity/compatibility.
+          File imgFile = File(inspectorImages.last); // Use latest
+          String? uploadedUrl = await ApiService().uploadImage(imgFile);
+          if (uploadedUrl != null) {
+            updateData['image_url'] = uploadedUrl;
+            updateData['images'] = [uploadedUrl];
+          }
         }
 
         await ApiService().updateAsset(assetId, updateData);

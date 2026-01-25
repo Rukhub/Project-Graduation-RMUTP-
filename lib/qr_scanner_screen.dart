@@ -15,17 +15,18 @@ class QRScannerScreen extends StatefulWidget {
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
   // MobileScanner 3.x controller does not have some v5 parameters
-  mobile.MobileScannerController cameraController = mobile.MobileScannerController(
-    autoStart: false, // Keep false to prevent emulator crashes
-    torchEnabled: false,
-    returnImage: false,
-    formats: const [mobile.BarcodeFormat.qrCode],
-  );
+  mobile.MobileScannerController cameraController =
+      mobile.MobileScannerController(
+        autoStart: false, // Keep false to prevent emulator crashes
+        torchEnabled: false,
+        returnImage: false,
+        formats: const [mobile.BarcodeFormat.qrCode],
+      );
 
   bool isProcessing = false;
   bool isPickerActive = false;
   bool hasPermission = false;
-  
+
   // Track camera state manually since 3.x controller value might differ
   bool isCameraStarted = false;
 
@@ -76,7 +77,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('ต้องการสิทธิ์การเข้าถึงกล้อง'),
-        content: const Text('กรุณาเปิดสิทธิ์การใช้งานกล้องในการตั้งค่าเพื่อใช้งานฟีเจอร์สแกน QR Code'),
+        content: const Text(
+          'กรุณาเปิดสิทธิ์การใช้งานกล้องในการตั้งค่าเพื่อใช้งานฟีเจอร์สแกน QR Code',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -117,20 +120,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       if (!mounted) return;
 
       if (equipment != null) {
-        final roomName = equipment['location_name'] ?? 
-                        equipment['location'] ?? 
-                        equipment['room_name'] ?? 
-                        'ไม่ระบุ';
-        
+        final roomName =
+            equipment['location_name'] ??
+            equipment['location'] ??
+            equipment['room_name'] ??
+            'ไม่ระบุ';
+
         debugPrint('✅ เจอครุภัณฑ์: ${equipment['asset_id']} ห้อง: $roomName');
-        
+
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => EquipmentDetailScreen(
-              equipment: equipment,
-              roomName: roomName,
-            ),
+            builder: (context) =>
+                EquipmentDetailScreen(equipment: equipment, roomName: roomName),
           ),
         );
       } else {
@@ -172,12 +174,12 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       // Assuming analyzeImage is available on controller in 3.5.0
       // If not, we might need a workaround or check documentation.
       // According to 3.5.7, analyzeImage exists on MobileScannerController.
-      
+
       final tempController = mobile.MobileScannerController(
         formats: const [mobile.BarcodeFormat.qrCode],
         autoStart: false,
       );
-      
+
       try {
         // v3.x analyzeImage returns bool (true if detected), but doesn't return the data directly?
         // Wait, v3.x analyzeImage returns Future<bool> and triggers onDetect callback?
@@ -186,52 +188,51 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         // This is tricky. In 3.x, analyzing image from file was often handled differently.
         // Actually, many users use `google_mlkit_barcode_scanning` separately for gallery.
         // BUT, since we removed that, we rely on mobile_scanner.
-        
+
         // Let's assume standard behavior: if 3.x analyzeImage triggers onDetect, we can set up a temp listener?
         // It's safer to rely on the fact that older mobile_scanner had analyzeImage but it was often buggy/limited.
         // BUT, given the user's request, let's try to use it.
-        
+
         // v3.5.0 analyzeImage returns Future<bool> indicating if analysis was successfully started
         final bool started = await tempController.analyzeImage(image.path);
-        
+
         if (!started) {
-           _showErrorDialog('ไม่สามารถอ่าน QR Code ในรูปได้');
-           setState(() => isProcessing = false);
-           return;
+          _showErrorDialog('ไม่สามารถอ่าน QR Code ในรูปได้');
+          setState(() => isProcessing = false);
+          return;
         }
 
         // Wait for event on barcodes stream
         bool found = false;
         // Listen to the stream for a short period
         final subscription = tempController.barcodes.listen((capture) {
-           if (capture.barcodes.isNotEmpty) {
-             final qrData = capture.barcodes.first.rawValue;
-             if (qrData != null) {
-                // Stop listening once found
-                if (!found) {
-                   found = true;
-                   _onQRCodeDetected(qrData);
-                }
-             }
-           }
+          if (capture.barcodes.isNotEmpty) {
+            final qrData = capture.barcodes.first.rawValue;
+            if (qrData != null) {
+              // Stop listening once found
+              if (!found) {
+                found = true;
+                _onQRCodeDetected(qrData);
+              }
+            }
+          }
         });
 
         // Loop to wait for result or timeout
         int retries = 0;
         while (!found && retries < 10) {
-           await Future.delayed(const Duration(milliseconds: 200));
-           // No need to check stream manually, listener handles it
-           retries++;
+          await Future.delayed(const Duration(milliseconds: 200));
+          // No need to check stream manually, listener handles it
+          retries++;
         }
-        
+
         await subscription.cancel();
-        
+
         if (!found) {
-           // Standard 3.x might not have picked it up
-           _showErrorDialog('ไม่พบ QR Code ในรูปภาพ');
-           setState(() => isProcessing = false);
+          // Standard 3.x might not have picked it up
+          _showErrorDialog('ไม่พบ QR Code ในรูปภาพ');
+          setState(() => isProcessing = false);
         }
-        
       } finally {
         tempController.dispose();
       }
@@ -266,7 +267,13 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('ตกลง', style: TextStyle(color: Color(0xFF9A2C2C), fontWeight: FontWeight.bold)),
+            child: const Text(
+              'ตกลง',
+              style: TextStyle(
+                color: Color(0xFF9A2C2C),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -298,7 +305,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       body: Stack(
         children: [
           if (hasPermission)
-             mobile.MobileScanner(
+            mobile.MobileScanner(
               controller: cameraController,
               // In v3.5.0: onDetect(BarcodeCapture capture)
               onDetect: (capture) {
@@ -314,34 +321,64 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               // errorBuilder might be slightly different or same
             )
           else
-             const Center(child: CircularProgressIndicator(color: Colors.white)),
+            const Center(child: CircularProgressIndicator(color: Colors.white)),
 
-
-          CustomPaint(
-            painter: ScannerOverlayPainter(),
-            child: Container(),
-          ),
+          CustomPaint(painter: ScannerOverlayPainter(), child: Container()),
 
           Positioned(
-            top: 50, left: 0, right: 0,
+            top: 50,
+            left: 0,
+            right: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
               margin: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(12)),
-              child: const Text('วาง QR Code ให้อยู่ในกรอบ', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'วาง QR Code ให้อยู่ในกรอบ',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
 
           Positioned(
-            bottom: 100, left: 0, right: 0,
+            bottom: 100,
+            left: 0,
+            right: 0,
             child: Center(
               child: Column(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: (isProcessing || isPickerActive) ? null : _pickImageFromGallery,
+                    onPressed: (isProcessing || isPickerActive)
+                        ? null
+                        : _pickImageFromGallery,
                     icon: const Icon(Icons.photo_library, color: Colors.white),
-                    label: const Text('เลือกจากแกลเลอรี่', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B0000), padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)), elevation: 5),
+                    label: const Text(
+                      'เลือกจากแกลเลอรี่',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B0000),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 30,
+                        vertical: 15,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: 5,
+                    ),
                   ),
                   Container(
                     margin: const EdgeInsets.only(top: 15),
@@ -351,19 +388,31 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                         valueListenable: cameraController.torchState,
                         builder: (context, state, child) {
                           final isOn = state == mobile.TorchState.on;
-                          return Icon(isOn ? Icons.flash_on : Icons.flash_off, color: Colors.white, size: 32); 
+                          return Icon(
+                            isOn ? Icons.flash_on : Icons.flash_off,
+                            color: Colors.white,
+                            size: 32,
+                          );
                         },
                       ),
-                      style: IconButton.styleFrom(backgroundColor: Colors.black.withValues(alpha: 0.5), padding: const EdgeInsets.all(15)),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withValues(alpha: 0.5),
+                        padding: const EdgeInsets.all(15),
+                      ),
                     ),
-                   ),
+                  ),
                 ],
               ),
             ),
           ),
 
           if (isProcessing)
-            Container(color: Colors.black.withValues(alpha: 0.7), child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+            Container(
+              color: Colors.black.withValues(alpha: 0.7),
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+            ),
         ],
       ),
     );
@@ -377,24 +426,84 @@ class ScannerOverlayPainter extends CustomPainter {
     final double scanAreaSize = size.width * 0.7;
     final double left = (size.width - scanAreaSize) / 2;
     final double top = (size.height - scanAreaSize) / 2;
-    final backgroundPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    final holePath = Path()..addRRect(RRect.fromRectAndRadius(Rect.fromLTWH(left, top, scanAreaSize, scanAreaSize), const Radius.circular(20)));
-    final overlayPath = Path.combine(PathOperation.difference, backgroundPath, holePath);
-    canvas.drawPath(overlayPath, Paint()..color = Colors.black.withValues(alpha: 0.6));
-    final borderPaint = Paint()..color = const Color(0xFF8B0000)..strokeWidth = 4..style = PaintingStyle.stroke;
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(left, top, scanAreaSize, scanAreaSize), const Radius.circular(20)), borderPaint);
+    final backgroundPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final holePath = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, top, scanAreaSize, scanAreaSize),
+          const Radius.circular(20),
+        ),
+      );
+    final overlayPath = Path.combine(
+      PathOperation.difference,
+      backgroundPath,
+      holePath,
+    );
+    canvas.drawPath(
+      overlayPath,
+      Paint()..color = Colors.black.withValues(alpha: 0.6),
+    );
+    final borderPaint = Paint()
+      ..color = const Color(0xFF8B0000)
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top, scanAreaSize, scanAreaSize),
+        const Radius.circular(20),
+      ),
+      borderPaint,
+    );
     // Corners
-    final cornerPaint = Paint()..color = const Color(0xFF8B0000)..strokeWidth = 6..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
+    final cornerPaint = Paint()
+      ..color = const Color(0xFF8B0000)
+      ..strokeWidth = 6
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
     const cornerLength = 30.0;
-    canvas.drawLine(Offset(left, top + cornerLength), Offset(left, top), cornerPaint);
-    canvas.drawLine(Offset(left, top), Offset(left + cornerLength, top), cornerPaint);
-    canvas.drawLine(Offset(left + scanAreaSize - cornerLength, top), Offset(left + scanAreaSize, top), cornerPaint);
-    canvas.drawLine(Offset(left + scanAreaSize, top), Offset(left + scanAreaSize, top + cornerLength), cornerPaint);
-    canvas.drawLine(Offset(left, top + scanAreaSize - cornerLength), Offset(left, top + scanAreaSize), cornerPaint);
-    canvas.drawLine(Offset(left, top + scanAreaSize), Offset(left + cornerLength, top + scanAreaSize), cornerPaint);
-    canvas.drawLine(Offset(left + scanAreaSize - cornerLength, top + scanAreaSize), Offset(left + scanAreaSize, top + scanAreaSize), cornerPaint);
-    canvas.drawLine(Offset(left + scanAreaSize, top + scanAreaSize - cornerLength), Offset(left + scanAreaSize, top + scanAreaSize), cornerPaint);
+    canvas.drawLine(
+      Offset(left, top + cornerLength),
+      Offset(left, top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left, top),
+      Offset(left + cornerLength, top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left + scanAreaSize - cornerLength, top),
+      Offset(left + scanAreaSize, top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left + scanAreaSize, top),
+      Offset(left + scanAreaSize, top + cornerLength),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left, top + scanAreaSize - cornerLength),
+      Offset(left, top + scanAreaSize),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left, top + scanAreaSize),
+      Offset(left + cornerLength, top + scanAreaSize),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left + scanAreaSize - cornerLength, top + scanAreaSize),
+      Offset(left + scanAreaSize, top + scanAreaSize),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(left + scanAreaSize, top + scanAreaSize - cornerLength),
+      Offset(left + scanAreaSize, top + scanAreaSize),
+      cornerPaint,
+    );
   }
+
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

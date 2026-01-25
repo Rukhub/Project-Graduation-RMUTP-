@@ -216,6 +216,30 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       ),
     );
 
+    // Upload images first if any
+    String? uploadedImageUrl;
+    if (reportImages.isNotEmpty) {
+      debugPrint('�� กำลังอัปโหลดรูปภาพ ${reportImages.length} รูป');
+
+      // อัปโหลดรูปแรก (โบรับแค่ image_url เดียว)
+      final firstImagePath = reportImages.first;
+      uploadedImageUrl = await ApiService().uploadImage(File(firstImagePath));
+
+      if (uploadedImageUrl == null) {
+        debugPrint('❌ อัปโหลดรูปภาพไม่สำเร็จ');
+        if (!context.mounted) return;
+        navigator.pop(); // ปิด loading
+
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
     // Call API
     String assetId = (currentEquipment!['asset_id'] ?? currentEquipment!['id'])
         .toString();
@@ -224,15 +248,22 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       assetId,
       _nameController.text.trim(),
       _reasonController.text.trim(),
+      imageUrl: uploadedImageUrl, // ส่ง URL ที่อัปโหลดแล้ว
     );
 
-    // Sync reporter info to Asset record as well (Use COALESCE logic on backend)
+    // Sync reporter info AND Image to Asset record as well
     if (result['success'] == true) {
       try {
         final Map<String, dynamic> updateData = Map.from(currentEquipment!);
         updateData['status'] = 'ชำรุด';
         updateData['reporter_name'] = _nameController.text.trim();
         updateData['issue_detail'] = _reasonController.text.trim();
+
+        // Sync Image if uploaded
+        if (uploadedImageUrl != null) {
+          updateData['image_url'] = uploadedImageUrl;
+        }
+
         // Ensure type compatibility
         if (updateData['type'] == null && updateData['asset_type'] != null) {
           updateData['type'] = updateData['asset_type'];

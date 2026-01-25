@@ -15,13 +15,13 @@ class _KrupanScreenState extends State<KrupanScreen> {
   int selectedFloor = 1;
   // ไม่ใช้ DataService แล้วสำหรับการดึงห้อง
   // final DataService _dataService = DataService();
-  
+
   // เก็บข้อมูลห้องที่ดึงจาก API: { 1: [{'location_id': 1, 'room_name': 'Room 1'}, ...], ... }
   Map<int, List<Map<String, dynamic>>> apiFloorRooms = {};
   bool _isLoading = true;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  
+
   // === Helper Function: แสดง Notification ด้านล่าง ===
   void _showBottomNotification({
     required String message,
@@ -30,10 +30,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
   }) {
     // ลบ overlay เก่าถ้ามี
     _removeCurrentOverlay();
-    
+
     final overlay = Overlay.of(context);
     late OverlayEntry overlayEntry;
-    
+
     overlayEntry = OverlayEntry(
       builder: (context) => _BottomNotificationWidget(
         message: message,
@@ -45,13 +45,13 @@ class _KrupanScreenState extends State<KrupanScreen> {
         },
       ),
     );
-    
+
     _currentOverlay = overlayEntry;
     overlay.insert(overlayEntry);
   }
-  
+
   OverlayEntry? _currentOverlay;
-  
+
   void _removeCurrentOverlay() {
     _currentOverlay?.remove();
     _currentOverlay = null;
@@ -67,15 +67,15 @@ class _KrupanScreenState extends State<KrupanScreen> {
     setState(() => _isLoading = true);
     try {
       final locations = await ApiService().getLocations();
-      
+
       // จัดกลุ่มห้องตามชั้น
       Map<int, List<Map<String, dynamic>>> tempFloorRooms = {};
-      
+
       for (var loc in locations) {
         // Parse floor: "ชั้น 1" -> 1
         String floorStr = loc['floor']?.toString() ?? '';
         int? floor;
-        
+
         // พยายามดึงตัวเลขจาก string
         final RegExp digitRegex = RegExp(r'\d+');
         final match = digitRegex.firstMatch(floorStr);
@@ -97,19 +97,24 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
       // เรียงลำดับห้องในแต่ละชั้น (ตามชื่อ)
       for (var key in tempFloorRooms.keys) {
-        tempFloorRooms[key]!.sort((a, b) => (a['room_name'] as String).compareTo(b['room_name'] as String));
+        tempFloorRooms[key]!.sort(
+          (a, b) =>
+              (a['room_name'] as String).compareTo(b['room_name'] as String),
+        );
       }
 
       setState(() {
         apiFloorRooms = tempFloorRooms;
         _isLoading = false;
-        
+
         // ถ้าชั้นที่เลือกไม่มีในข้อมูลใหม่ ให้เปลี่ยนไปชั้นแรกที่มี
-        if (!apiFloorRooms.containsKey(selectedFloor) && apiFloorRooms.isNotEmpty) {
-          selectedFloor = apiFloorRooms.keys.reduce((a, b) => a < b ? a : b); // เลือกชั้นต่ำสุด
+        if (!apiFloorRooms.containsKey(selectedFloor) &&
+            apiFloorRooms.isNotEmpty) {
+          selectedFloor = apiFloorRooms.keys.reduce(
+            (a, b) => a < b ? a : b,
+          ); // เลือกชั้นต่ำสุด
         }
       });
-      
     } catch (e) {
       debugPrint('Error loading locations: $e');
       setState(() => _isLoading = false);
@@ -131,7 +136,11 @@ class _KrupanScreenState extends State<KrupanScreen> {
           icon: const CircleAvatar(
             backgroundColor: Colors.white,
             radius: 16,
-            child: Icon(Icons.arrow_back_ios_new, size: 16, color: Color(0xFF9A2C2C)),
+            child: Icon(
+              Icons.arrow_back_ios_new,
+              size: 16,
+              color: Color(0xFF9A2C2C),
+            ),
           ),
           onPressed: () {
             Navigator.pop(context);
@@ -174,7 +183,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
               children: [
                 if (_isLoading)
-                  const Center(child: CircularProgressIndicator(color: Color(0xFF9A2C2C)))
+                  const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF9A2C2C)),
+                  )
                 else ...[
                   // แสดงรายการห้องของชั้นที่เลือก
                   ...rooms.map((room) => buildRoomCard(room)),
@@ -182,16 +193,18 @@ class _KrupanScreenState extends State<KrupanScreen> {
                 ],
               ],
             ),
-      floatingActionButton: SizedBox(
-        width: 70,
-        height: 70,
-        child: FloatingActionButton(
-          onPressed: () => _showAddRoomDialog(context),
-          backgroundColor: const Color(0xFF9A2C2C),
-          shape: const CircleBorder(),
-          child: const Icon(Icons.add, size: 40, color: Colors.white),
-        ),
-      ),
+      floatingActionButton: ApiService().currentUser?['role'] == 'admin'
+          ? SizedBox(
+              width: 70,
+              height: 70,
+              child: FloatingActionButton(
+                onPressed: () => _showAddRoomDialog(context),
+                backgroundColor: const Color(0xFF9A2C2C),
+                shape: const CircleBorder(),
+                child: const Icon(Icons.add, size: 40, color: Colors.white),
+              ),
+            )
+          : null,
     );
   }
 
@@ -208,7 +221,8 @@ class _KrupanScreenState extends State<KrupanScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             List<int> sortedFloors = apiFloorRooms.keys.toList()..sort();
-            
+            bool isAdmin = ApiService().currentUser?['role'] == 'admin';
+
             return Container(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.6,
@@ -227,7 +241,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
+
                   // Header
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -236,54 +250,75 @@ class _KrupanScreenState extends State<KrupanScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
+                            color: const Color(
+                              0xFF9A2C2C,
+                            ).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.layers, color: Color(0xFF9A2C2C), size: 24),
+                          child: const Icon(
+                            Icons.layers,
+                            color: Color(0xFF9A2C2C),
+                            size: 24,
+                          ),
                         ),
                         const SizedBox(width: 12),
-                        const Column(
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'จัดการชั้น',
-                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            const Text(
+                              'เลือกชั้น',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                            Text(
-                              'เลือก เพิ่ม หรือลบชั้น',
-                              style: TextStyle(fontSize: 14, color: Colors.grey),
-                            ),
+                            // Show management hint only for admins
+                            if (isAdmin)
+                              const Text(
+                                'เลือก เพิ่ม หรือลบชั้น',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey,
+                                ),
+                              ),
                           ],
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Divider
                   Divider(color: Colors.grey.shade200, height: 1),
-                  
+
                   // Floor List
                   Flexible(
                     child: ListView.builder(
                       shrinkWrap: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       itemCount: sortedFloors.length,
                       itemBuilder: (context, index) {
                         int floor = sortedFloors[index];
                         int roomCount = apiFloorRooms[floor]?.length ?? 0;
                         bool isSelected = selectedFloor == floor;
-                        
+
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           decoration: BoxDecoration(
-                            color: isSelected 
-                                ? const Color(0xFF9A2C2C).withValues(alpha: 0.08)
+                            color: isSelected
+                                ? const Color(
+                                    0xFF9A2C2C,
+                                  ).withValues(alpha: 0.08)
                                 : Colors.grey.shade50,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: isSelected 
-                                  ? const Color(0xFF9A2C2C).withValues(alpha: 0.3)
+                              color: isSelected
+                                  ? const Color(
+                                      0xFF9A2C2C,
+                                    ).withValues(alpha: 0.3)
                                   : Colors.transparent,
                               width: 2,
                             ),
@@ -307,7 +342,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
                                       width: 50,
                                       height: 50,
                                       decoration: BoxDecoration(
-                                        color: isSelected 
+                                        color: isSelected
                                             ? const Color(0xFF9A2C2C)
                                             : Colors.grey.shade200,
                                         borderRadius: BorderRadius.circular(12),
@@ -318,24 +353,29 @@ class _KrupanScreenState extends State<KrupanScreen> {
                                           style: TextStyle(
                                             fontSize: 20,
                                             fontWeight: FontWeight.bold,
-                                            color: isSelected ? Colors.white : Colors.grey.shade600,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : Colors.grey.shade600,
                                           ),
                                         ),
                                       ),
                                     ),
                                     const SizedBox(width: 16),
-                                    
+
                                     // Floor Info
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'ชั้น $floor',
                                             style: TextStyle(
                                               fontSize: 18,
                                               fontWeight: FontWeight.bold,
-                                              color: isSelected ? const Color(0xFF9A2C2C) : Colors.black87,
+                                              color: isSelected
+                                                  ? const Color(0xFF9A2C2C)
+                                                  : Colors.black87,
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -348,10 +388,14 @@ class _KrupanScreenState extends State<KrupanScreen> {
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
-                                                roomCount > 0 ? '$roomCount ห้อง' : 'ยังไม่มีห้อง',
+                                                roomCount > 0
+                                                    ? '$roomCount ห้อง'
+                                                    : 'ยังไม่มีห้อง',
                                                 style: TextStyle(
                                                   fontSize: 13,
-                                                  color: roomCount > 0 ? Colors.grey.shade600 : Colors.orange,
+                                                  color: roomCount > 0
+                                                      ? Colors.grey.shade600
+                                                      : Colors.orange,
                                                 ),
                                               ),
                                             ],
@@ -359,31 +403,43 @@ class _KrupanScreenState extends State<KrupanScreen> {
                                         ],
                                       ),
                                     ),
-                                    
+
                                     // Selected Check
-                                    if (isSelected)
+                                    if (isSelected && !isAdmin)
                                       Container(
                                         padding: const EdgeInsets.all(6),
                                         decoration: const BoxDecoration(
                                           color: Color(0xFF9A2C2C),
                                           shape: BoxShape.circle,
                                         ),
-                                        child: const Icon(Icons.check, color: Colors.white, size: 16),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
                                       ),
-                                    
-                                    // Edit & Delete Button
-                                    if (!isSelected)
+
+                                    // Edit & Delete Button (Only Admin)
+                                    if (!isSelected && isAdmin)
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           // Edit
                                           IconButton(
-                                            onPressed: () => _showEditFloorDialog(context, floor, setModalState),
+                                            onPressed: () =>
+                                                _showEditFloorDialog(
+                                                  context,
+                                                  floor,
+                                                  setModalState,
+                                                ),
                                             icon: Container(
                                               padding: const EdgeInsets.all(8),
                                               decoration: BoxDecoration(
-                                                color: Colors.blue.withValues(alpha: 0.1),
-                                                borderRadius: BorderRadius.circular(10),
+                                                color: Colors.blue.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
                                               child: Icon(
                                                 Icons.edit,
@@ -394,12 +450,19 @@ class _KrupanScreenState extends State<KrupanScreen> {
                                           ),
                                           // Delete
                                           IconButton(
-                                            onPressed: () => _handleDeleteFloor(context, floor, setModalState),
+                                            onPressed: () => _handleDeleteFloor(
+                                              context,
+                                              floor,
+                                              setModalState,
+                                            ),
                                             icon: Container(
                                               padding: const EdgeInsets.all(8),
                                               decoration: BoxDecoration(
-                                                color: Colors.red.withValues(alpha: 0.1),
-                                                borderRadius: BorderRadius.circular(10),
+                                                color: Colors.red.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
                                               child: Icon(
                                                 Icons.delete_outline,
@@ -419,35 +482,39 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       },
                     ),
                   ),
-                  
-                  // Add Floor Button
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showAddFloorDialog(context);
-                        },
-                        icon: const Icon(Icons.add_circle_outline, size: 24),
-                        label: const Text(
-                          'เพิ่มชั้นใหม่',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF9A2C2C),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+
+                  // Add Floor Button (Only Admin)
+                  if (isAdmin)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showAddFloorDialog(context);
+                          },
+                          icon: const Icon(Icons.add_circle_outline, size: 24),
+                          label: const Text(
+                            'เพิ่มชั้นใหม่',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          elevation: 0,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF9A2C2C),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 0,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  
+
                   // Safe area padding
                   SizedBox(height: MediaQuery.of(context).padding.bottom),
                 ],
@@ -460,14 +527,22 @@ class _KrupanScreenState extends State<KrupanScreen> {
   }
 
   // === Handle Edit Floor ===
-  void _showEditFloorDialog(BuildContext modalContext, int oldFloor, StateSetter setModalState) {
-    final TextEditingController floorController = TextEditingController(text: oldFloor.toString());
+  void _showEditFloorDialog(
+    BuildContext modalContext,
+    int oldFloor,
+    StateSetter setModalState,
+  ) {
+    final TextEditingController floorController = TextEditingController(
+      text: oldFloor.toString(),
+    );
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text('แก้ไขเลขชั้น'),
           content: TextField(
             controller: floorController,
@@ -491,61 +566,71 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   if (newFloor != null && newFloor != oldFloor) {
                     // Check if new floor already exists (Optional: Merge?)
                     if (apiFloorRooms.containsKey(newFloor)) {
-                       ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('มีชั้น $newFloor อยู่แล้ว ไม่สามารถเปลี่ยนเป็นชั้นซ้ำกันได้')),
-                       );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'มีชั้น $newFloor อยู่แล้ว ไม่สามารถเปลี่ยนเป็นชั้นซ้ำกันได้',
+                          ),
+                        ),
+                      );
                     } else {
-                       // เริ่มกระบวนการย้ายชั้น
-                       // ต้อง update ทุกห้องในชั้น oldFloor ให้เป็น newFloor
-                       // เนื่องจากไม่มี API updateMany จึงต้องวนลูป
-                       Navigator.pop(context); // ปิด Dialog
-                       Navigator.pop(modalContext); // ปิด Picker เพื่อ Refresh
+                      // เริ่มกระบวนการย้ายชั้น
+                      // ต้อง update ทุกห้องในชั้น oldFloor ให้เป็น newFloor
+                      // เนื่องจากไม่มี API updateMany จึงต้องวนลูป
+                      Navigator.pop(context); // ปิด Dialog
+                      Navigator.pop(modalContext); // ปิด Picker เพื่อ Refresh
 
-                       setState(() => _isLoading = true);
+                      setState(() => _isLoading = true);
 
-                       List<Map<String, dynamic>> roomsToMove = apiFloorRooms[oldFloor] ?? [];
-                       bool allSuccess = true;
-                       
-                       for (var room in roomsToMove) {
-                         int locationId = int.parse(room['location_id'].toString());
-                         String currentRoomName = room['room_name']; // ดึงชื่อห้องเดิม
-                         
-                         // Update floor (ส่งทั้ง floor และ room_name ตามที่ API บังคับ)
-                         final res = await ApiService().updateRoomLocation(
-                           locationId, 
-                           floor: 'ชั้น $newFloor',
-                           roomName: currentRoomName, 
-                         );
-                         
-                         if (res['success'] != true) {
-                           allSuccess = false;
-                         }
-                       }
+                      List<Map<String, dynamic>> roomsToMove =
+                          apiFloorRooms[oldFloor] ?? [];
+                      bool allSuccess = true;
 
-                       if (allSuccess) {
-                         _showBottomNotification(
-                            message: 'เปลี่ยนจากชั้น $oldFloor เป็น $newFloor สำเร็จ', 
-                            icon: Icons.check_circle, 
-                            color: Colors.green
-                         );
-                       } else {
-                          _showBottomNotification(
-                            message: 'บางห้องอัปเดตไม่สำเร็จ กรุณาลองใหม่', 
-                            icon: Icons.warning, 
-                            color: Colors.orange
-                         );
-                       }
+                      for (var room in roomsToMove) {
+                        int locationId = int.parse(
+                          room['location_id'].toString(),
+                        );
+                        String currentRoomName =
+                            room['room_name']; // ดึงชื่อห้องเดิม
 
-                       // Reload Data
-                       _loadLocations(); 
+                        // Update floor (ส่งทั้ง floor และ room_name ตามที่ API บังคับ)
+                        final res = await ApiService().updateRoomLocation(
+                          locationId,
+                          floor: 'ชั้น $newFloor',
+                          roomName: currentRoomName,
+                        );
+
+                        if (res['success'] != true) {
+                          allSuccess = false;
+                        }
+                      }
+
+                      if (allSuccess) {
+                        _showBottomNotification(
+                          message:
+                              'เปลี่ยนจากชั้น $oldFloor เป็น $newFloor สำเร็จ',
+                          icon: Icons.check_circle,
+                          color: Colors.green,
+                        );
+                      } else {
+                        _showBottomNotification(
+                          message: 'บางห้องอัปเดตไม่สำเร็จ กรุณาลองใหม่',
+                          icon: Icons.warning,
+                          color: Colors.orange,
+                        );
+                      }
+
+                      // Reload Data
+                      _loadLocations();
                     }
                   }
                 }
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              child: const Text(
+                'บันทึก',
+                style: TextStyle(color: Colors.white),
               ),
-              child: const Text('บันทึก', style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -554,7 +639,11 @@ class _KrupanScreenState extends State<KrupanScreen> {
   }
 
   // === Handle Delete Floor (จาก UI) ===
-  void _handleDeleteFloor(BuildContext modalContext, int floor, StateSetter setModalState) async {
+  void _handleDeleteFloor(
+    BuildContext modalContext,
+    int floor,
+    StateSetter setModalState,
+  ) async {
     // ถ้าเป็นชั้นสุดท้าย ห้ามลบ
     if (apiFloorRooms.keys.length == 1) {
       _showBottomNotification(
@@ -564,7 +653,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
       );
       return;
     }
-    
+
     // ตรวจสอบว่าชั้นนี้มีห้องหรือไม่
     if (apiFloorRooms[floor]?.isNotEmpty == true) {
       // ถ้ามีห้อง ต้องใส่รหัสผ่านก่อนลบ
@@ -578,7 +667,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Row(
             children: [
               Container(
@@ -587,7 +678,11 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   color: Colors.orange.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.orange,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text('ยืนยันการลบชั้น'),
@@ -603,14 +698,16 @@ class _KrupanScreenState extends State<KrupanScreen> {
               onPressed: () => Navigator.pop(context, true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               child: const Text('ลบ', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
-      
+
       if (confirmed == true) {
         // ลบและ update modal
         setModalState(() {
@@ -634,7 +731,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text('เพิ่มชั้นใหม่'),
           content: TextField(
             controller: floorController,
@@ -657,36 +756,42 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   int? newFloor = int.tryParse(input);
                   if (newFloor != null) {
                     if (apiFloorRooms.containsKey(newFloor)) {
-                       // ถ้ามีชั้นนี้อยู่แล้ว ให้แจ้งเตือน หรือแค่ย้ายไปชั้นนั้น
-                       setState(() {
-                         selectedFloor = newFloor;
-                       });
-                       Navigator.pop(context);
-                       ScaffoldMessenger.of(context).showSnackBar(
-                         SnackBar(content: Text('มีชั้น $newFloor อยู่แล้ว ย้ายไปยังชั้น $newFloor')),
-                       );
+                      // ถ้ามีชั้นนี้อยู่แล้ว ให้แจ้งเตือน หรือแค่ย้ายไปชั้นนั้น
+                      setState(() {
+                        selectedFloor = newFloor;
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'มีชั้น $newFloor อยู่แล้ว ย้ายไปยังชั้น $newFloor',
+                          ),
+                        ),
+                      );
                     } else {
                       // สร้างชั้นใหม่ (Empty)
                       setState(() {
                         apiFloorRooms[newFloor] = []; // สร้าง List ว่าง
                         selectedFloor = newFloor; // ย้ายไปชั้นใหม่ทันที
-                        
+
                         // Re-sort keys logic if needed, but Map keys aren't ordered automatically in Dart Map literal unless LinkedHashMap (default).
                         // But when we build ListView, we sort keys every time: `sortedFloors = apiFloorRooms.keys.toList()..sort();`
                         // So just adding it is fine.
                       });
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
-                         SnackBar(
-                           content: Text('สร้างชั้น $newFloor สำเร็จ! กรุณาเพิ่มห้องเพื่อบันทึก'),
-                           backgroundColor: Colors.green,
-                           duration: const Duration(seconds: 4),
-                         ),
+                        SnackBar(
+                          content: Text(
+                            'สร้างชั้น $newFloor สำเร็จ! กรุณาเพิ่มห้องเพื่อบันทึก',
+                          ),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 4),
+                        ),
                       );
                     }
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                       const SnackBar(content: Text('กรุณากรอกตัวเลขเท่านั้น')),
+                      const SnackBar(content: Text('กรุณากรอกตัวเลขเท่านั้น')),
                     );
                   }
                 }
@@ -710,7 +815,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text('เพิ่มห้องใหม่'),
           content: TextField(
             controller: roomController,
@@ -735,7 +842,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
                   if (context.mounted) {
                     Navigator.pop(context); // ปิด Dialog
-                    
+
                     if (result['success']) {
                       // แสดง Notification ด้านล่าง (สีเขียว)
                       _showBottomNotification(
@@ -749,19 +856,23 @@ class _KrupanScreenState extends State<KrupanScreen> {
                         if (!apiFloorRooms.containsKey(selectedFloor)) {
                           apiFloorRooms[selectedFloor] = [];
                         }
-                        
+
                         // สร้าง Object ห้องใหม่
                         // ถ้า Server ส่ง ID กลับมาให้ใช้ ID นั้น ถ้าไม่มีให้ใช้ 0 ไปก่อน (แต่มันจะลบไม่ได้ใน session นี้)
                         int newId = result['location_id'] ?? 0;
-                        
+
                         apiFloorRooms[selectedFloor]!.add({
                           'location_id': newId,
                           'room_name': roomController.text,
-                          'floor': 'ชั้น $selectedFloor'
+                          'floor': 'ชั้น $selectedFloor',
                         });
 
                         // จัดเรียง
-                        apiFloorRooms[selectedFloor]!.sort((a, b) => (a['room_name'] as String).compareTo(b['room_name'] as String));
+                        apiFloorRooms[selectedFloor]!.sort(
+                          (a, b) => (a['room_name'] as String).compareTo(
+                            b['room_name'] as String,
+                          ),
+                        );
                       });
 
                       // โหลดข้อมูลจริงตามมา (เผื่อ ID ผิดหรือต้องการข้อมูลอื่นเพิ่ม)
@@ -791,14 +902,18 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
   // Dialog แก้ไขห้อง
   void _showEditRoomDialog(Map<String, dynamic> room) {
-    final TextEditingController roomController = TextEditingController(text: room['room_name']);
+    final TextEditingController roomController = TextEditingController(
+      text: room['room_name'],
+    );
     int locationId = int.parse(room['location_id'].toString());
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text('แก้ไขชื่อห้อง'),
           content: TextField(
             controller: roomController,
@@ -818,7 +933,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
                 if (newName.isNotEmpty && newName != room['room_name']) {
                   // เรียก API แก้ไข (ต้องส่งทั้งชั้นและชื่อห้อง ตามที่ Server บังคับ)
                   final result = await ApiService().updateRoomLocation(
-                    locationId, 
+                    locationId,
                     roomName: newName,
                     floor: 'ชั้น $selectedFloor', // ส่งชั้นปัจจุบันไปด้วย
                   );
@@ -826,22 +941,31 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   if (context.mounted) {
                     Navigator.pop(context);
                     if (result['success']) {
-                       _showBottomNotification(
+                      _showBottomNotification(
                         message: 'แก้ไขชื่อห้องเป็น "$newName" สำเร็จ',
                         icon: Icons.check_circle,
                         color: Colors.green,
                       );
                       setState(() {
                         // Update UI
-                        final index = apiFloorRooms[selectedFloor]?.indexWhere((element) => element['location_id'].toString() == locationId.toString());
+                        final index = apiFloorRooms[selectedFloor]?.indexWhere(
+                          (element) =>
+                              element['location_id'].toString() ==
+                              locationId.toString(),
+                        );
                         if (index != null && index != -1) {
-                            apiFloorRooms[selectedFloor]![index]['room_name'] = newName;
-                            // Re-sort
-                             apiFloorRooms[selectedFloor]!.sort((a, b) => (a['room_name'] as String).compareTo(b['room_name'] as String));
+                          apiFloorRooms[selectedFloor]![index]['room_name'] =
+                              newName;
+                          // Re-sort
+                          apiFloorRooms[selectedFloor]!.sort(
+                            (a, b) => (a['room_name'] as String).compareTo(
+                              b['room_name'] as String,
+                            ),
+                          );
                         }
                       });
                     } else {
-                       _showBottomNotification(
+                      _showBottomNotification(
                         message: result['message'] ?? 'แก้ไขไม่สำเร็จ',
                         icon: Icons.error_outline,
                         color: Colors.red,
@@ -849,13 +973,16 @@ class _KrupanScreenState extends State<KrupanScreen> {
                     }
                   }
                 } else {
-                   Navigator.pop(context);
+                  Navigator.pop(context);
                 }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF9A2C2C),
               ),
-              child: const Text('บันทึก', style: TextStyle(color: Colors.white)),
+              child: const Text(
+                'บันทึก',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -869,8 +996,11 @@ class _KrupanScreenState extends State<KrupanScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.meeting_room_outlined,
-              size: 100, color: Colors.grey.shade300),
+          Icon(
+            Icons.meeting_room_outlined,
+            size: 100,
+            color: Colors.grey.shade300,
+          ),
           const SizedBox(height: 20),
           Text(
             'ยังไม่มีห้องในชั้นนี้',
@@ -925,7 +1055,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
               ),
             );
           },
-          onLongPress: () => _showDeleteRoomDialog(room),
+          onLongPress: ApiService().currentUser?['role'] == 'admin'
+              ? () => _showDeleteRoomDialog(room)
+              : null,
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -969,18 +1101,27 @@ class _KrupanScreenState extends State<KrupanScreen> {
                     ],
                   ),
                 ),
-                // ปุ่มแก้ไข
-                IconButton(
-                  icon: Icon(Icons.edit, color: Colors.blue.shade300, size: 24),
-                  tooltip: 'แก้ไขห้อง',
-                  onPressed: () => _showEditRoomDialog(room),
-                ),
-                // ปุ่มลบ
-                IconButton(
-                  icon: Icon(Icons.delete_outline, color: Colors.red.shade300, size: 24),
-                  tooltip: 'ลบห้อง',
-                  onPressed: () => _showDeleteRoomDialog(room),
-                ),
+                // Admin Actions (Edit/Delete)
+                if (ApiService().currentUser?['role'] == 'admin') ...[
+                  IconButton(
+                    icon: Icon(
+                      Icons.edit,
+                      color: Colors.blue.shade300,
+                      size: 24,
+                    ),
+                    tooltip: 'แก้ไขห้อง',
+                    onPressed: () => _showEditRoomDialog(room),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.delete_outline,
+                      color: Colors.red.shade300,
+                      size: 24,
+                    ),
+                    tooltip: 'ลบห้อง',
+                    onPressed: () => _showDeleteRoomDialog(room),
+                  ),
+                ],
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -1010,12 +1151,17 @@ class _KrupanScreenState extends State<KrupanScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Row(
             children: const [
               Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
               SizedBox(width: 10),
-              Text('ยืนยันการลบห้อง', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(
+                'ยืนยันการลบห้อง',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: Text(
@@ -1025,7 +1171,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey, fontSize: 16)),
+              child: const Text(
+                'ยกเลิก',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -1034,7 +1183,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
                 if (context.mounted) {
                   Navigator.pop(context); // ปิด Dialog
-                  
+
                   if (result['success'] == true) {
                     // แสดง Notification ด้านล่าง (สีแดง)
                     _showBottomNotification(
@@ -1045,8 +1194,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
                     // ลบออกจาก List
                     setState(() {
-                      apiFloorRooms[selectedFloor]?.removeWhere((r) => 
-                        r['location_id'].toString() == locationId.toString()
+                      apiFloorRooms[selectedFloor]?.removeWhere(
+                        (r) =>
+                            r['location_id'].toString() ==
+                            locationId.toString(),
                       );
                     });
                   } else {
@@ -1061,9 +1212,14 @@ class _KrupanScreenState extends State<KrupanScreen> {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              child: const Text('ลบ', style: TextStyle(color: Colors.white, fontSize: 16)),
+              child: const Text(
+                'ลบ',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
             ),
           ],
         );
@@ -1076,10 +1232,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
     final TextEditingController passwordController = TextEditingController();
     String? errorMessage;
     bool isDeleting = false;
-    
+
     final rooms = apiFloorRooms[floor] ?? [];
     final roomNames = rooms.map((r) => r['room_name'] as String).toList();
-    
+
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -1087,7 +1243,9 @@ class _KrupanScreenState extends State<KrupanScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               title: Row(
                 children: [
                   Container(
@@ -1096,13 +1254,20 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       color: Colors.red.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red,
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
                       'ลบชั้นและห้องทั้งหมด',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
@@ -1118,25 +1283,37 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       decoration: BoxDecoration(
                         color: Colors.orange.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                          const Icon(
+                            Icons.info_outline,
+                            color: Colors.orange,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'ชั้น $floor มี ${rooms.length} ห้อง จะถูกลบทั้งหมด!',
-                              style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w500),
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 12),
-                    
+
                     // รายการห้องที่จะถูกลบ
-                    const Text('ห้องที่จะถูกลบ:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'ห้องที่จะถูกลบ:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 8),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 100),
@@ -1148,30 +1325,51 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       child: SingleChildScrollView(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: roomNames.map((name) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Row(
-                              children: [
-                                Icon(Icons.meeting_room, size: 16, color: Colors.red.shade300),
-                                const SizedBox(width: 8),
-                                Text(name, style: const TextStyle(fontSize: 14)),
-                              ],
-                            ),
-                          )).toList(),
+                          children: roomNames
+                              .map(
+                                (name) => Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.meeting_room,
+                                        size: 16,
+                                        color: Colors.red.shade300,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        name,
+                                        style: const TextStyle(fontSize: 14),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                              .toList(),
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // ช่องใส่คำว่า Delete เพื่อยืนยัน
-                    const Text('พิมพ์ "Delete" เพื่อยืนยันการลบ:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'พิมพ์ "Delete" เพื่อยืนยันการลบ:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: passwordController,
                       decoration: InputDecoration(
                         hintText: 'Delete',
-                        prefixIcon: const Icon(Icons.warning_amber_rounded, color: Colors.red),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        prefixIcon: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                         errorText: errorMessage,
                       ),
                     ),
@@ -1180,54 +1378,76 @@ class _KrupanScreenState extends State<KrupanScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: isDeleting ? null : () => Navigator.pop(context, false),
-                  child: Text('ยกเลิก', style: TextStyle(color: isDeleting ? Colors.grey.shade300 : Colors.grey)),
+                  onPressed: isDeleting
+                      ? null
+                      : () => Navigator.pop(context, false),
+                  child: Text(
+                    'ยกเลิก',
+                    style: TextStyle(
+                      color: isDeleting ? Colors.grey.shade300 : Colors.grey,
+                    ),
+                  ),
                 ),
                 ElevatedButton(
-                  onPressed: isDeleting ? null : () async {
-                    // แสดง loading ระหว่าง verify
-                    setDialogState(() {
-                      isDeleting = true;
-                      errorMessage = null;
-                    });
-                    
-                    // ตรวจสอบว่าพิมพ์คำว่า Delete ถูกต้องหรือไม่
-                    if (passwordController.text != 'Delete') {
-                      setDialogState(() {
-                        isDeleting = false;
-                        errorMessage = 'กรุณาพิมพ์คำว่า "Delete" เพื่อยืนยัน';
-                      });
-                      return;
-                    }
-                    
-                    // คำยืนยันถูกต้อง - เริ่มลบห้อง
-                    
-                    // ลบห้องทั้งหมดใน Database
-                    bool allSuccess = true;
-                    for (var room in rooms) {
-                      final locationId = int.parse(room['location_id'].toString());
-                      final result = await ApiService().deleteLocation(locationId);
-                      if (result['success'] != true) {
-                        allSuccess = false;
-                        break;
-                      }
-                    }
-                    
-                    if (context.mounted) {
-                      Navigator.pop(context, allSuccess);
-                    }
-                  },
+                  onPressed: isDeleting
+                      ? null
+                      : () async {
+                          // แสดง loading ระหว่าง verify
+                          setDialogState(() {
+                            isDeleting = true;
+                            errorMessage = null;
+                          });
+
+                          // ตรวจสอบว่าพิมพ์คำว่า Delete ถูกต้องหรือไม่
+                          if (passwordController.text != 'Delete') {
+                            setDialogState(() {
+                              isDeleting = false;
+                              errorMessage =
+                                  'กรุณาพิมพ์คำว่า "Delete" เพื่อยืนยัน';
+                            });
+                            return;
+                          }
+
+                          // คำยืนยันถูกต้อง - เริ่มลบห้อง
+
+                          // ลบห้องทั้งหมดใน Database
+                          bool allSuccess = true;
+                          for (var room in rooms) {
+                            final locationId = int.parse(
+                              room['location_id'].toString(),
+                            );
+                            final result = await ApiService().deleteLocation(
+                              locationId,
+                            );
+                            if (result['success'] != true) {
+                              allSuccess = false;
+                              break;
+                            }
+                          }
+
+                          if (context.mounted) {
+                            Navigator.pop(context, allSuccess);
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isDeleting ? Colors.grey : Colors.red,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: isDeleting
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
                         )
-                      : const Text('ยืนยันลบ', style: TextStyle(color: Colors.white)),
+                      : const Text(
+                          'ยืนยันลบ',
+                          style: TextStyle(color: Colors.white),
+                        ),
                 ),
               ],
             );
@@ -1235,7 +1455,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
         );
       },
     );
-    
+
     return result ?? false;
   }
 
@@ -1244,7 +1464,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
     setState(() {
       // ลบชั้นออกจาก Map
       apiFloorRooms.remove(floor);
-      
+
       // ถ้าชั้นที่ลบคือชั้นที่เลือกอยู่ ให้ย้ายไปชั้นอื่น
       if (selectedFloor == floor) {
         if (apiFloorRooms.isNotEmpty) {
@@ -1253,7 +1473,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
         }
       }
     });
-    
+
     // แสดง Notification ด้านล่าง
     _showBottomNotification(
       message: 'ลบชั้น $floor สำเร็จ',
@@ -1279,7 +1499,8 @@ class _BottomNotificationWidget extends StatefulWidget {
   });
 
   @override
-  State<_BottomNotificationWidget> createState() => _BottomNotificationWidgetState();
+  State<_BottomNotificationWidget> createState() =>
+      _BottomNotificationWidgetState();
 }
 
 class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
@@ -1299,10 +1520,7 @@ class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 1), // เริ่มจากด้านล่าง (ซ่อน)
       end: Offset.zero, // เลื่อนขึ้นมา
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    ));
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _controller.forward();
 
@@ -1331,7 +1549,9 @@ class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      bottom: MediaQuery.of(context).padding.bottom + 20, // เหนือขอบล่าง / home indicator
+      bottom:
+          MediaQuery.of(context).padding.bottom +
+          20, // เหนือขอบล่าง / home indicator
       left: 16,
       right: 16,
       child: SlideTransition(
@@ -1339,7 +1559,8 @@ class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
         child: GestureDetector(
           onVerticalDragEnd: (details) {
             // ปัดลงเพื่อปิด
-            if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
+            if (details.primaryVelocity != null &&
+                details.primaryVelocity! > 0) {
               _dismiss();
             }
           },
@@ -1365,7 +1586,11 @@ class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
                     ),
                   ),
                   // ไอคอนลูกศรลง (บอกว่าปัดลงได้)
-                  const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 20),
+                  const Icon(
+                    Icons.keyboard_arrow_down,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
                 ],
               ),
             ),

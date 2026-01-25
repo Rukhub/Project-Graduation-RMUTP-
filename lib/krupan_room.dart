@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'equipment_detail_screen.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
@@ -257,35 +259,41 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                 const SizedBox(height: 140),
               ],
             ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ปุ่มจัดการประเภทครุภัณฑ์
-          SizedBox(
-            width: 56,
-            height: 56,
-            child: FloatingActionButton(
-              onPressed: () => _showManageTypesDialog(),
-              backgroundColor: const Color(0xFF5593E4),
-              heroTag: 'manage_types',
-              child: const Icon(Icons.settings, size: 28, color: Colors.white),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // ปุ่มเพิ่มครุภัณฑ์
-          SizedBox(
-            width: 70,
-            height: 70,
-            child: FloatingActionButton(
-              onPressed: () => _showAddEquipmentDialog(),
-              backgroundColor: const Color(0xFF9A2C2C),
-              heroTag: 'add_equipment',
-              shape: const CircleBorder(),
-              child: const Icon(Icons.add, size: 40, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+      floatingActionButton: ApiService().currentUser?['role'] == 'admin'
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ปุ่มจัดการประเภทครุภัณฑ์
+                SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: FloatingActionButton(
+                    onPressed: () => _showManageTypesDialog(),
+                    backgroundColor: const Color(0xFF5593E4),
+                    heroTag: 'manage_types',
+                    child: const Icon(
+                      Icons.settings,
+                      size: 28,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // ปุ่มเพิ่มครุภัณฑ์
+                SizedBox(
+                  width: 70,
+                  height: 70,
+                  child: FloatingActionButton(
+                    onPressed: () => _showAddEquipmentDialog(),
+                    backgroundColor: const Color(0xFF9A2C2C),
+                    heroTag: 'add_equipment',
+                    shape: const CircleBorder(),
+                    child: const Icon(Icons.add, size: 40, color: Colors.white),
+                  ),
+                ),
+              ],
+            )
+          : null,
     );
   }
 
@@ -635,36 +643,69 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               ),
 
               // Actions (Compact)
+              // Actions
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildCompactAssetButton(
-                    icon: Icons.report_problem_outlined,
-                    color: Colors.orange.shade700,
-                    tooltip: 'แจ้งปัญหา',
-                    onPressed: () => _navigateToReport(index, equipment),
-                  ),
-                  _buildCompactAssetButton(
-                    icon: Icons.verified_outlined,
-                    color: Colors.green,
-                    tooltip: 'ตรวจสอบ',
-                    onPressed: () => _navigateToInspect(index, equipment),
-                  ),
-                  _buildCompactAssetButton(
-                    icon: Icons.edit_outlined,
-                    color: const Color(0xFF5593E4),
-                    tooltip: 'แก้ไข',
-                    onPressed: () => _showEditEquipmentDialog(index, equipment),
-                  ),
-                  _buildCompactAssetButton(
-                    icon: Icons.delete_outline,
-                    color: Colors.redAccent,
-                    tooltip: 'ลบ',
-                    onPressed: () => _showDeleteConfirmation(
-                      index,
-                      (equipment['asset_id'] ?? equipment['id']).toString(),
+                  // Admin View: Full Controls
+                  if (ApiService().currentUser?['role'] == 'admin') ...[
+                    _buildCompactAssetButton(
+                      icon: Icons.report_problem_outlined,
+                      color: Colors.orange.shade700,
+                      tooltip: 'แจ้งปัญหา',
+                      onPressed: () => _navigateToReport(index, equipment),
                     ),
-                  ),
+                    _buildCompactAssetButton(
+                      icon: Icons.verified_outlined,
+                      color: Colors.green,
+                      tooltip: 'ตรวจสอบ',
+                      onPressed: () => _navigateToInspect(index, equipment),
+                    ),
+                    _buildCompactAssetButton(
+                      icon: Icons.edit_outlined,
+                      color: const Color(0xFF5593E4),
+                      tooltip: 'แก้ไข',
+                      onPressed: () =>
+                          _showEditEquipmentDialog(index, equipment),
+                    ),
+                    _buildCompactAssetButton(
+                      icon: Icons.delete_outline,
+                      color: Colors.redAccent,
+                      tooltip: 'ลบ',
+                      onPressed: () => _showDeleteConfirmation(
+                        index,
+                        (equipment['asset_id'] ?? equipment['id']).toString(),
+                      ),
+                    ),
+                  ]
+                  // User View: Simple Report Button
+                  else
+                    TextButton.icon(
+                      onPressed: () => _navigateToReport(index, equipment),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.orange.shade50,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      icon: Icon(
+                        Icons.report_problem,
+                        size: 18,
+                        color: Colors.orange.shade800,
+                      ),
+                      label: Text(
+                        'แจ้งปัญหา',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -1076,6 +1117,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     String selectedStatus = 'ปกติ';
     bool isSaving = false;
 
+    // Image upload state
+    File? selectedImage;
+    final ImagePicker picker = ImagePicker();
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1099,7 +1144,8 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.stretch, // ⭐ ใช้ stretch ให้สม่ำเสมอ
                   children: [
                     TextField(
                       controller: idController,
@@ -1241,6 +1287,149 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                         );
                       }).toList(),
                     ),
+                    const SizedBox(height: 18),
+
+                    // Image Picker Section
+                    Text(
+                      'รูปภาพครุภัณฑ์',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: GestureDetector(
+                        onTap: isSaving
+                            ? null
+                            : () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  builder: (context) {
+                                    return SafeArea(
+                                      child: Wrap(
+                                        children: [
+                                          ListTile(
+                                            leading: const Icon(
+                                              Icons.camera_alt,
+                                              color: Color(0xFF5593E4),
+                                            ),
+                                            title: const Text('ถ่ายรูป'),
+                                            onTap: () async {
+                                              Navigator.pop(context);
+                                              final XFile? photo = await picker
+                                                  .pickImage(
+                                                    source: ImageSource.camera,
+                                                  );
+                                              if (photo != null) {
+                                                setDialogState(() {
+                                                  selectedImage = File(
+                                                    photo.path,
+                                                  );
+                                                });
+                                              }
+                                            },
+                                          ),
+                                          ListTile(
+                                            leading: const Icon(
+                                              Icons.photo_library,
+                                              color: Color(0xFF99CD60),
+                                            ),
+                                            title: const Text(
+                                              'เลือกจาก Gallery',
+                                            ),
+                                            onTap: () async {
+                                              Navigator.pop(context);
+                                              final XFile? image = await picker
+                                                  .pickImage(
+                                                    source: ImageSource.gallery,
+                                                  );
+                                              if (image != null) {
+                                                setDialogState(() {
+                                                  selectedImage = File(
+                                                    image.path,
+                                                  );
+                                                });
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                        child: Container(
+                          width: 120,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.grey.shade300,
+                              width: 2,
+                              style: BorderStyle.solid,
+                            ),
+                          ),
+                          child: selectedImage != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Image.file(
+                                        selectedImage!,
+                                        fit: BoxFit.cover,
+                                      ),
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            setDialogState(() {
+                                              selectedImage = null;
+                                            });
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.red,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.close,
+                                              size: 16,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.add_photo_alternate_outlined,
+                                      size: 32,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'เพิ่มรูปภาพ\n(ไม่บังคับ)',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1259,6 +1448,22 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                           if (idController.text.isNotEmpty) {
                             setDialogState(() => isSaving = true);
 
+                            String imageUrl = '';
+                            if (selectedImage != null) {
+                              final uploadedUrl = await ApiService()
+                                  .uploadImage(selectedImage!);
+                              if (uploadedUrl != null) {
+                                imageUrl = uploadedUrl;
+                              } else {
+                                if (context.mounted) {
+                                  _showCustomSnackBar(
+                                    'อัปโหลดรูปภาพไม่สำเร็จ แต่จะบันทึกข้อมูลอื่นต่อไป',
+                                    isSuccess: false,
+                                  );
+                                }
+                              }
+                            }
+
                             final newAsset = {
                               'asset_id': idController.text,
                               'type': selectedType,
@@ -1269,6 +1474,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                               'inspectorName':
                                   ApiService().currentUser?['fullname'] ??
                                   'Admin',
+                              'image_url': imageUrl,
                               'images': [],
                             };
 
@@ -1334,6 +1540,11 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     );
     String selectedType = equipment['type'] as String;
     String selectedStatus = equipment['status'] ?? 'ปกติ';
+
+    // Image Editing State
+    File? selectedImage;
+    String? currentImageUrl = equipment['image_url'];
+    final ImagePicker picker = ImagePicker();
     bool isSaving = false;
 
     showDialog(
@@ -1359,7 +1570,8 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment
+                      .stretch, // ⭐ แก้: ใช้ stretch แทน start
                   children: [
                     TextField(
                       controller: idController,
@@ -1500,6 +1712,179 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                         );
                       }).toList(),
                     ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'รูปภาพ',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: isSaving
+                          ? null
+                          : () {
+                              showModalBottomSheet(
+                                context: context,
+                                builder: (context) => SafeArea(
+                                  child: Wrap(
+                                    children: [
+                                      ListTile(
+                                        leading: const Icon(Icons.camera_alt),
+                                        title: const Text('ถ่ายรูป'),
+                                        onTap: () async {
+                                          Navigator.pop(context);
+                                          final XFile? photo = await picker
+                                              .pickImage(
+                                                source: ImageSource.camera,
+                                              );
+                                          if (photo != null) {
+                                            setDialogState(
+                                              () => selectedImage = File(
+                                                photo.path,
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      ListTile(
+                                        leading: const Icon(
+                                          Icons.photo_library,
+                                          color: Color(0xFF99CD60),
+                                        ),
+                                        title: const Text('เลือกจาก Gallery'),
+                                        onTap: () async {
+                                          Navigator.pop(context);
+                                          final XFile? image = await picker
+                                              .pickImage(
+                                                source: ImageSource.gallery,
+                                              );
+                                          if (image != null) {
+                                            setDialogState(
+                                              () => selectedImage = File(
+                                                image.path,
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                      child: Container(
+                        height: 150,
+                        // ลบ width: double.infinity ออก เพราะใช้ stretch แล้ว
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: selectedImage != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.file(
+                                      selectedImage!,
+                                      fit: BoxFit.cover,
+                                    ),
+                                    // ปุ่มลบรูป (มุมขวาบน)
+                                    Positioned(
+                                      top: 5,
+                                      right: 5,
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setDialogState(() {
+                                            selectedImage = null;
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.close,
+                                            size: 16,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : (currentImageUrl != null &&
+                                  currentImageUrl!.isNotEmpty)
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.network(
+                                      currentImageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              const Center(
+                                                child: Icon(
+                                                  Icons.broken_image,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                    ),
+                                    // ปุ่มลบรูป (มุมขวาบน)
+                                    Positioned(
+                                      top: 5,
+                                      right: 5,
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setDialogState(() {
+                                            currentImageUrl = null; // ลบรูปออก
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.close,
+                                            size: 16,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_a_photo,
+                                    size: 40,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'เพิ่มรูปภาพ',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1529,7 +1914,32 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                             updatedData['status'] = selectedStatus;
                             // Ensure required fields exist
                             updatedData['brand_model'] ??= '';
+                            updatedData['brand_model'] ??= '';
                             updatedData['location_id'] = widget.locationId;
+
+                            // Handle Image Upload & Deletion
+                            if (selectedImage != null) {
+                              // ผู้ใช้เลือกรูปใหม่ -> อัปโหลด
+                              setDialogState(() => isSaving = true);
+                              final uploadedUrl = await ApiService()
+                                  .uploadImage(selectedImage!);
+                              if (uploadedUrl != null) {
+                                updatedData['image_url'] = uploadedUrl;
+                                updatedData['images'] = [
+                                  uploadedUrl,
+                                ]; // ⭐ อัปเดต List ด้วย
+                              }
+                            } else if (currentImageUrl == null) {
+                              // ผู้ใช้ลบรูปออก -> ส่ง empty string และ empty list
+                              updatedData['image_url'] = '';
+                              updatedData['images'] =
+                                  []; // ⭐ ต้องลบ List ออกด้วยไม่งั้น API Service จะไปหยิบอันเก่า
+                            } else {
+                              // ไม่ได้แก้ไขรูป -> ใช้ URL เดิม
+                              updatedData['image_url'] = currentImageUrl;
+                              // images ปล่อยไว้เหมือนเดิม (หรือจะ update ให้ตรงกันก็ได้ แต่ไม่ซีเรียสเท่าการลบ)
+                            }
+
                             // Update inspector to current user
                             updatedData['inspectorName'] =
                                 ApiService().currentUser?['fullname'] ??

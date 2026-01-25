@@ -8,7 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:ui' as ui;
 import 'api_service.dart';
 import 'package:gal/gal.dart'; // Import Gal package
-import 'inspect_equipment_screen.dart'; // Import Inspect Screen
+
 import 'report_problem_screen.dart'; // Import Report Screen
 
 class EquipmentDetailScreen extends StatefulWidget {
@@ -35,30 +35,53 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   String? inspectorName;
   List<String> inspectorImages = [];
 
-  // ข้อมูลผู้แจ้ง
+  // ข้อมูลผู้แจ้ง (เก็บไว้ตัวเดียวพอ)
   String? reporterName;
   String? reportReason;
   List<String> reportImages = [];
 
+  // Internal DB ID
+  int? internalId;
+
+  // Upload state
+  bool isUploadingImage = false;
+
   @override
   void initState() {
     super.initState();
-    // โหลดข้อมูลจาก equipment
+
+    // 1. โหลดรูปภาพ
+    // 1. โหลดรูปภาพ (รองรับทั้ง List และ String แบบ Comma separated)
     if (widget.equipment['images'] != null) {
       if (widget.equipment['images'] is List) {
         imagePaths = List<String>.from(widget.equipment['images']);
+      } else if (widget.equipment['images'] is String) {
+        // สูตรโบ: แตก String ด้วย comma
+        final imgStr = widget.equipment['images'] as String;
+        if (imgStr.isNotEmpty) {
+          imagePaths = imgStr.split(',');
+        }
       }
     }
-    if (widget.equipment['status'] != null) {
-      equipmentStatus = widget.equipment['status'];
+    // Fallback: รองรับ key 'image_url' ด้วย (เผื่อ backend ส่งมา key นี้)
+    if (imagePaths.isEmpty && widget.equipment['image_url'] != null) {
+      final imgUrl = widget.equipment['image_url'].toString();
+      if (imgUrl.isNotEmpty) {
+        imagePaths = imgUrl.split(',');
+      }
     }
+
+    // 2. โหลดสถานะ
+    equipmentStatus = widget.equipment['status'] ?? 'ปกติ';
     originalStatus = equipmentStatus;
 
-    // โหลดข้อมูลผู้ตรวจ (Handle snake_case from API)
+    // 3. Set Internal ID
+    internalId = widget.equipment['id'];
+
+    // 4. โหลดข้อมูลผู้ตรวจ
     inspectorName =
         widget.equipment['inspectorName'] ?? widget.equipment['checker_name'];
     if (widget.equipment['inspectorImages'] != null) {
-      // ... existing logic for list ...
       if (widget.equipment['inspectorImages'] is List) {
         inspectorImages = List<String>.from(
           widget.equipment['inspectorImages'],
@@ -66,11 +89,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       }
     }
 
-    // โหลดข้อมูลผู้แจ้ง
+    // 5. โหลดข้อมูลผู้แจ้ง
     reporterName =
         widget.equipment['reporterName'] ?? widget.equipment['reporter_name'];
 
-    // Check for reason keys: reportReason (local), report_reason (DB), issue_detail (DB)
     reportReason =
         widget.equipment['reportReason'] ??
         widget.equipment['report_reason'] ??
@@ -82,42 +104,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       }
     }
 
-    // 🔥 Fetch real report data from API if status is Broken/Repairing
-    if (shouldShowReporter) {
-      _loadReportData();
-    }
+    // 6. โหลดข้อมูลเพิ่มเติมจาก API ถ้าจำเป็น
 
-    // Always refresh latest data to get correct inspector name
+    // if (shouldShowReporter) {
+    //   _loadReportData(); // Removed
+    // }
+
+    // 7. โหลดข้อมูลล่าสุดเพื่อให้ได้ ID ที่ถูกต้อง
     _loadLatestData();
   }
 
-  Future<void> _loadReportData() async {
-    try {
-      final reports = await ApiService().getReports();
-      String myId = widget.equipment['asset_id'] ?? widget.equipment['id'];
-
-      final myReports = reports
-          .where((r) => r['asset_id'].toString() == myId.toString())
-          .toList();
-
-      if (myReports.isNotEmpty) {
-        myReports.sort(
-          (a, b) => (b['report_id'] ?? 0).compareTo(a['report_id'] ?? 0),
-        );
-        final latestReport = myReports.first;
-        if (mounted) {
-          setState(() {
-            reporterName = latestReport['reporter_name'];
-            reportReason = latestReport['issue_detail'];
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error loading report data: $e');
-    }
-  }
-
-  // Reload latest asset data (to get updated inspector/status)
+  // Reload latest asset data (to get updated inspector/status/report)
   Future<void> _loadLatestData() async {
     try {
       // We don't have getAssetById, so we fetch assets by location and filter
@@ -139,22 +136,82 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       );
 
       if (updatedAsset.isNotEmpty && mounted) {
+        debugPrint('� Updated Asset Data: $updatedAsset');
         setState(() {
           // Update Status
           equipmentStatus = updatedAsset['status'] ?? equipmentStatus;
           originalStatus = equipmentStatus;
 
           // Update Inspector
-          // API Mapping: checker_name -> inspectorName
           inspectorName =
-              updatedAsset['checker_name'] ?? updatedAsset['inspectorName'];
+              updatedAsset['inspectorName'] ?? updatedAsset['checker_name'];
 
-          // Update Images
-          if (updatedAsset['image_url'] != null &&
-              updatedAsset['image_url'].toString().isNotEmpty) {
-            // If API returns single string, wrap in list if needed, or handle as existing logic
-            // Here we assume simple handling or existing logic
-            // imagePaths = [updatedAsset['image_url']];
+          // Update Reporter (ดึงจาก Asset โดยตรง แทนที่จะไปดึงจาก Reports API ที่พัง)
+          reporterName =
+              updatedAsset['reporterName'] ?? updatedAsset['reporter_name'];
+          reportReason =
+              updatedAsset['reportReason'] ??
+              updatedAsset['report_reason'] ??
+              updatedAsset['issue_detail'];
+
+          // Update Report Images (ROBUST PARSING from Asset)
+          reportImages = [];
+
+          // 1. Try 'reportImages' key
+          if (updatedAsset['reportImages'] != null) {
+            final val = updatedAsset['reportImages'];
+            if (val is List) {
+              reportImages = List<String>.from(val);
+            } else if (val is String && val.isNotEmpty) {
+              reportImages = val.split(',');
+            }
+          }
+
+          // 2. Try 'image_url' (if status is broken/repairing, image_url might be the report image)
+          if (reportImages.isEmpty &&
+              (equipmentStatus == 'ชำรุด' ||
+                  equipmentStatus == 'อยู่ระหว่างซ่อม') &&
+              updatedAsset['image_url'] != null) {
+            final val = updatedAsset['image_url'];
+            if (val is String && val.isNotEmpty) {
+              reportImages = val.split(',');
+            } else if (val is List) {
+              reportImages = List<String>.from(val);
+            }
+          }
+
+          debugPrint('🏁 Final Parsed Report Images: $reportImages');
+
+          // === NEW: อัปเดตรูปภาพหลักของครุภัณฑ์ ===
+          // Update Main Asset Images (imagePaths)
+          List<String> newImagePaths = [];
+          if (updatedAsset['images'] != null) {
+            final val = updatedAsset['images'];
+            if (val is List) {
+              newImagePaths = List<String>.from(val);
+            } else if (val is String && val.isNotEmpty) {
+              newImagePaths = val.split(',');
+            }
+          }
+          // Fallback to 'image_url' if 'images' is empty (for normal status)
+          if (newImagePaths.isEmpty &&
+              equipmentStatus == 'ปกติ' &&
+              updatedAsset['image_url'] != null) {
+            final val = updatedAsset['image_url'];
+            if (val is String && val.isNotEmpty) {
+              newImagePaths = val.split(',');
+            }
+          }
+          // Update state only if we found images
+          if (newImagePaths.isNotEmpty) {
+            imagePaths = newImagePaths;
+            debugPrint('📷 Updated Main Images: $imagePaths');
+          }
+          // === END NEW ===
+
+          // Update internal ID just in case
+          if (updatedAsset['id'] != null) {
+            internalId = updatedAsset['id'];
           }
         });
       }
@@ -191,10 +248,166 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     }
   }
 
-  void _deleteImage(int index) {
+  void _deleteImage(int index) async {
+    // ลบออกจาก local state ก่อน
+    final deletedUrl = imagePaths[index];
     setState(() {
       imagePaths.removeAt(index);
     });
+
+    // อัปเดต Backend ให้ลบรูปออกด้วย
+    try {
+      final updateId =
+          widget.equipment['asset_id']?.toString() ??
+          widget.equipment['id']?.toString() ??
+          '';
+
+      final newImageUrl = imagePaths.isNotEmpty ? imagePaths.join(',') : '';
+
+      final result = await ApiService().updateAsset(updateId, {
+        'asset_id': widget.equipment['asset_id'] ?? widget.equipment['id'],
+        'type': widget.equipment['type'] ?? widget.equipment['asset_type'],
+        'brand_model': widget.equipment['brand_model'],
+        'location_id': widget.equipment['location_id'],
+        'status': equipmentStatus,
+        'inspectorName': inspectorName,
+        'image_url': newImageUrl,
+        'images': imagePaths,
+      });
+
+      if (mounted) {
+        if (result['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ลบรูปภาพสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          // ถ้าลบไม่สำเร็จ ให้เพิ่มกลับ
+          setState(() {
+            imagePaths.insert(index, deletedUrl);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'ลบรูปภาพไม่สำเร็จ'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Delete image error: $e');
+      // Restore on error
+      if (mounted) {
+        setState(() {
+          imagePaths.insert(index, deletedUrl);
+        });
+      }
+    }
+  }
+
+  Future<void> _uploadAndUpdateImage() async {
+    if (imagePaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กรุณาเลือกรูปภาพก่อน'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => isUploadingImage = true);
+
+    try {
+      // รวบรวม URLs สุดท้ายที่จะส่งไป Backend
+      List<String> finalUrls = [];
+
+      for (final path in imagePaths) {
+        // เช็คว่าเป็น URL (http/https) หรือ ไฟล์ในเครื่อง
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          // เป็น URL อยู่แล้ว ไม่ต้องอัปโหลดใหม่
+          finalUrls.add(path);
+        } else {
+          // เป็น local file path -> ต้องอัปโหลด
+          final uploadedUrl = await ApiService().uploadImage(File(path));
+          if (uploadedUrl != null) {
+            finalUrls.add(uploadedUrl);
+          } else {
+            debugPrint('⚠️ Failed to upload: $path');
+          }
+        }
+      }
+
+      if (finalUrls.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // อัปเดต local state ให้เป็น URLs แทน local paths
+      setState(() {
+        imagePaths = finalUrls;
+      });
+
+      // อัพเดต asset กับ Backend
+      final updateId =
+          widget.equipment['asset_id']?.toString() ??
+          widget.equipment['id']?.toString() ??
+          '';
+
+      final updateData = {
+        'asset_id': widget.equipment['asset_id'] ?? widget.equipment['id'],
+        'type': widget.equipment['type'] ?? widget.equipment['asset_type'],
+        'brand_model': widget.equipment['brand_model'],
+        'location_id': widget.equipment['location_id'],
+        'status': equipmentStatus,
+        'inspectorName': inspectorName,
+        'image_url': finalUrls.join(','), // สูตรโบ: รวมเป็น String เดียว
+        'images': finalUrls,
+      };
+
+      final result = await ApiService().updateAsset(updateId, updateData);
+
+      if (mounted) {
+        if (result['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('อัปโหลดรูปภาพสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'อัปเดตข้อมูลไม่สำเร็จ'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('เกิดข้อผิดพลาด กรุณาลองใหม่'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingImage = false);
+      }
+    }
   }
 
   void _showImageSourceDialog() {
@@ -589,6 +802,40 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                     return _buildImageCard(images, index, onDeleteImage);
                   },
                 ),
+          // Upload Button
+          if (images.isNotEmpty) ...[
+            const SizedBox(height: 15),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: isUploadingImage ? null : _uploadAndUpdateImage,
+                icon: isUploadingImage
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.cloud_upload, color: Colors.white),
+                label: Text(
+                  isUploadingImage ? 'กำลังอัปโหลด...' : 'อัปโหลดรูปภาพ',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9A2C2C),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -661,8 +908,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   // Section สถานะ
   Widget _buildStatusSection(Color statusColor) {
+    bool isAdmin = ApiService().currentUser?['role'] == 'admin';
+
     return InkWell(
-      onTap: _showStatusDialog,
+      onTap: isAdmin ? _showStatusDialog : null,
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -715,7 +964,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 ],
               ),
             ),
-            Icon(Icons.edit, color: Colors.grey.shade400, size: 22),
+            if (isAdmin)
+              Icon(Icons.edit, color: Colors.grey.shade400, size: 22),
           ],
         ),
       ),
@@ -768,30 +1018,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   ),
                 ],
               ),
-              // ปุ่มไปหน้าตรวจสภาพ (Inspect)
-              TextButton.icon(
-                onPressed: () async {
-                  // Navigate to Inspect Screen
-                  // Need to import valid file or pass correct route
-                  // Assuming InspectEquipmentScreen is available (imported in krupan_room.dart, need here too?)
-                  // Wait, I need to check imports. If not imported, I have to add import first.
-                  // But let's assume it's available or I'll add import in another chunk.
-
-                  await _navigateToInspect();
-                },
-                icon: const Icon(
-                  Icons.fact_check,
-                  size: 18,
-                  color: Color(0xFF5593E4),
-                ),
-                label: const Text(
-                  'บันทึกการตรวจ',
-                  style: TextStyle(
-                    color: Color(0xFF5593E4),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 15),
@@ -808,17 +1034,41 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 Icon(Icons.person, color: Colors.grey.shade600, size: 22),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    inspectorName ?? 'ยังไม่มีผู้ตรวจสอบ',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: inspectorName != null
-                          ? Colors.black87
-                          : Colors.grey.shade500,
-                      fontStyle: inspectorName != null
-                          ? FontStyle.normal
-                          : FontStyle.italic,
-                    ),
+                  child: Builder(
+                    builder: (context) {
+                      // Logic to handle if backend saved ID instead of Name
+                      String displayName = inspectorName ?? '-';
+
+                      // Check if it's numeric (ID)
+                      if (int.tryParse(displayName) != null) {
+                        final currentUserId = ApiService()
+                            .currentUser?['user_id']
+                            ?.toString();
+                        if (displayName == currentUserId) {
+                          displayName =
+                              ApiService().currentUser?['fullname'] ??
+                              ApiService().currentUser?['username'] ??
+                              displayName;
+                        } else {
+                          displayName = 'ผู้ตรวจสอบ #$displayName';
+                        }
+                      } else if (displayName == '-') {
+                        // Fallback to current user if null
+                        displayName =
+                            ApiService().currentUser?['fullname'] ??
+                            ApiService().currentUser?['username'] ??
+                            'Admin';
+                      }
+
+                      return Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Colors.black87,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -828,34 +1078,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _navigateToInspect() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => InspectEquipmentScreen(
-          equipment: widget.equipment,
-          roomName: widget.roomName,
-        ),
-      ),
-    );
-
-    // Update UI immediately from result
-    if (result != null && result is Map && mounted) {
-      setState(() {
-        if (result['status'] != null) {
-          equipmentStatus = result['status'];
-          originalStatus = equipmentStatus;
-        }
-        if (result['checkerName'] != null) {
-          inspectorName = result['checkerName'];
-        }
-      });
-    }
-
-    // Refresh data form API to be sure (Delay slightly to allow DB update)
-    await _loadLatestData();
   }
 
   Future<void> _navigateToReport() async {
@@ -1029,9 +1251,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                         ? reportReason!
                         : 'ไม่ได้ระบุรายละเอียด',
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 14,
                       color: Colors.grey.shade800,
-                      height: 1.4,
+                      height: 1.5,
                     ),
                   ),
                 ],
@@ -1039,7 +1261,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ),
           ],
 
-          // รูปภาพหลักฐาน
+          // Evidence Images (รูปภาพหลักฐาน)
           if (reportImages.isNotEmpty) ...[
             const SizedBox(height: 15),
             Text(
@@ -1052,28 +1274,73 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ),
             const SizedBox(height: 10),
             SizedBox(
-              height: 80,
+              height: 100, // เพิ่มความสูงหน่อย
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: reportImages.length,
                 itemBuilder: (context, index) {
-                  return Container(
-                    width: 80,
-                    margin: const EdgeInsets.only(right: 10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red.shade100),
-                      image: DecorationImage(
-                        image: FileImage(File(reportImages[index])),
-                        fit: BoxFit.cover,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+                  final imgPath = reportImages[index];
+                  final isNetwork = imgPath.startsWith('http');
+
+                  return GestureDetector(
+                    onTap: () {
+                      // Show Full Image Dialog
+                      showDialog(
+                        context: context,
+                        builder: (context) => Dialog(
+                          backgroundColor: Colors.transparent,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              InkWell(
+                                onTap: () => Navigator.pop(context),
+                                child: Container(
+                                  color: Colors.transparent,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                ),
+                              ),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: isNetwork
+                                    ? Image.network(
+                                        imgPath,
+                                        fit: BoxFit.contain,
+                                      )
+                                    : Image.file(
+                                        File(imgPath),
+                                        fit: BoxFit.contain,
+                                      ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
+                      );
+                    },
+                    child: Container(
+                      width: 100, // เพิ่มขนาดหน่อย
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.shade100),
+                        color: Colors.grey.shade100,
+                        image: DecorationImage(
+                          image: isNetwork
+                              ? NetworkImage(imgPath)
+                              : FileImage(File(imgPath)) as ImageProvider,
+                          fit: BoxFit.cover,
+                          onError: (exception, stackTrace) {
+                            debugPrint('🖼️ Image Load Error: $exception');
+                          },
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -1250,14 +1517,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   ) {
     return Stack(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            image: DecorationImage(
-              image: images[index].startsWith('http')
-                  ? NetworkImage(images[index])
-                  : FileImage(File(images[index])) as ImageProvider,
-              fit: BoxFit.cover,
+        GestureDetector(
+          onTap: () => _showFullScreenImage(context, images[index]),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              image: DecorationImage(
+                image: images[index].startsWith('http')
+                    ? NetworkImage(images[index])
+                    : FileImage(File(images[index])) as ImageProvider,
+                fit: BoxFit.cover,
+              ),
             ),
           ),
         ),
@@ -1277,6 +1547,49 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showFullScreenImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.zero,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Black background with dismiss tap
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Colors.black,
+              ),
+            ),
+            // Zoomable Image
+            InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: imageUrl.startsWith('http')
+                  ? Image.network(imageUrl, fit: BoxFit.contain)
+                  : Image.file(File(imageUrl), fit: BoxFit.contain),
+            ),
+            // Close button
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -66,7 +66,50 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     if (user != null) {
-      // Login สำเร็จ
+      // ตรวจสอบสถานะการอนุมัติ
+      bool isApproved = (user['is_approved'] == 1);
+
+      if (!isApproved) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Icon(Icons.hourglass_empty, color: Colors.orange.shade700),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'รอการอนุมัติ',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              content: const Text(
+                'บัญชีนี้รอการอนุมัติจากแอดมินนะ\nโปรดติดต่อผู้ดูแลระบบ',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'ตกลง',
+                    style: TextStyle(
+                      color: Color(0xFF9A2C2C),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return; // หยุดการทำงาน ไม่ไปต่อ
+      }
+
+      // Login สำเร็จ และผ่านการอนุมัติ
       // บันทึกข้อมูลผู้ใช้
       ApiService().currentUser = user;
 
@@ -118,16 +161,22 @@ class _LoginPageState extends State<LoginPage> {
                     // แสดง error message ถ้ามี
                     if (_errorMessage != null)
                       Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        margin: const EdgeInsets.only(bottom: 20),
                         decoration: BoxDecoration(
                           color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.red.shade200),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade700),
+                            Icon(
+                              Icons.error_outline,
+                              color: Colors.red.shade700,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -147,11 +196,17 @@ class _LoginPageState extends State<LoginPage> {
                         fillColor: Colors.white,
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade400,
+                            width: 2,
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade600,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                     ),
@@ -162,7 +217,11 @@ class _LoginPageState extends State<LoginPage> {
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
                           onPressed: () {
                             setState(() {
                               _obscurePassword = !_obscurePassword;
@@ -174,11 +233,17 @@ class _LoginPageState extends State<LoginPage> {
                         fillColor: Colors.white,
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(color: Colors.grey.shade400, width: 2),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade400,
+                            width: 2,
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(color: Colors.grey.shade600, width: 1.5),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade600,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                       onSubmitted: (_) => _handleLogin(),
@@ -190,26 +255,50 @@ class _LoginPageState extends State<LoginPage> {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF9A2C2C),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
                         ),
                         onPressed: _handleLogin,
                         child: _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
                             : const Text(
                                 'Login',
-                                style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                       ),
                     ),
                     const SizedBox(height: 15),
                     Row(
                       children: [
-                        Expanded(child: Divider(color: Colors.grey.shade400, thickness: 1.2)),
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                            thickness: 1.2,
+                          ),
+                        ),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('or', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                          child: Text(
+                            'or',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
-                        Expanded(child: Divider(color: Colors.grey.shade400, thickness: 1.2)),
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                            thickness: 1.2,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -235,7 +324,13 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            const Text('Google', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            const Text(
+                              'Google',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(width: 40), // Spacing
@@ -245,7 +340,9 @@ class _LoginPageState extends State<LoginPage> {
                             GestureDetector(
                               onTap: () {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('ThaID login coming soon!')),
+                                  const SnackBar(
+                                    content: Text('ThaID login coming soon!'),
+                                  ),
                                 );
                               },
                               child: CircleAvatar(
@@ -262,7 +359,13 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            const Text('ThaID', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            const Text(
+                              'ThaID',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -273,13 +376,36 @@ class _LoginPageState extends State<LoginPage> {
                       style: TextStyle(color: Colors.grey),
                     ),
                     const SizedBox(height: 10),
-                    TextButton.icon(
-                      onPressed: _handleBypassLogin,
-                      icon: const Icon(Icons.developer_mode, color: Colors.grey),
-                      label: const Text(
-                        'Skip Login (Dev Mode)',
-                        style: TextStyle(color: Colors.grey),
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _handleBypassLogin(isAdmin: true),
+                          icon: const Icon(
+                            Icons.admin_panel_settings,
+                            color: Colors.red,
+                          ),
+                          label: const Text(
+                            'Dev (Admin)',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        TextButton.icon(
+                          onPressed: () => _handleBypassLogin(isAdmin: false),
+                          icon: const Icon(Icons.person, color: Colors.green),
+                          label: const Text(
+                            'Dev (User)',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -377,27 +503,30 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _handleBypassLogin() {
+  void _handleBypassLogin({required bool isAdmin}) {
     // Mock User Data for testing without backend
     final mockUser = {
-      'user_id': 9999, // Use int as typical IDs might be int
-      'username': 'dev_user',
-      'fullname': 'Developer Mode',
-      'role': 'admin',
-      'position': 'Developer'
+      'user_id': isAdmin ? 9999 : 8888,
+      'username': isAdmin ? 'dev_admin' : 'dev_user',
+      'fullname': isAdmin ? 'Developer Mode (Admin)' : 'Developer Mode (User)',
+      'role': isAdmin ? 'admin' : 'user',
+      'position': 'Developer',
+      'is_approved': 1,
     };
-    
+
     ApiService().currentUser = mockUser;
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Entered Developer Mode (Offline)'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(
+            'Entered Dev Mode as ${isAdmin ? 'Admin' : 'User'} (Offline)',
+          ),
+          backgroundColor: isAdmin ? Colors.red : Colors.green,
+          duration: const Duration(seconds: 2),
         ),
       );
-      
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const MenuScreen()),
