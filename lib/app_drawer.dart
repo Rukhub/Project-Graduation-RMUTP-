@@ -55,10 +55,7 @@ class AppDrawer extends StatelessWidget {
                       ),
                       Text(
                         'ระบบจัดการครุภัณฑ์',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white70,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                     ],
                   ),
@@ -106,7 +103,9 @@ class AppDrawer extends StatelessWidget {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const AddEquipmentQuickScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => const AddEquipmentQuickScreen(),
+                  ),
                 );
               },
             ),
@@ -118,7 +117,9 @@ class AppDrawer extends StatelessWidget {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const InspectEquipmentScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => const InspectEquipmentScreen(),
+                  ),
                 );
               },
             ),
@@ -130,7 +131,9 @@ class AppDrawer extends StatelessWidget {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const ReportProblemScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => const ReportProblemScreen(),
+                  ),
                 );
               },
             ),
@@ -140,7 +143,7 @@ class AppDrawer extends StatelessWidget {
             // โปรไฟล์ Section
             _buildSectionHeader('บัญชี'),
             const SizedBox(height: 5),
-            
+
             _buildMenuItem(
               context,
               icon: Icons.person_outline,
@@ -208,9 +211,7 @@ class AppDrawer extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Expanded(
-            child: Divider(color: Colors.white24, height: 1),
-          ),
+          const Expanded(child: Divider(color: Colors.white24, height: 1)),
         ],
       ),
     );
@@ -261,12 +262,17 @@ class AppDrawer extends StatelessWidget {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Row(
             children: [
               Icon(Icons.person, color: Color(0xFF9A2C2C), size: 28),
               SizedBox(width: 10),
-              Text('ตั้งค่าโปรไฟล์', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'ตั้งค่าโปรไฟล์',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: Column(
@@ -280,7 +286,11 @@ class AppDrawer extends StatelessWidget {
                   color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(40),
                 ),
-                child: const Icon(Icons.person, color: Color(0xFF9A2C2C), size: 50),
+                child: const Icon(
+                  Icons.person,
+                  color: Color(0xFF9A2C2C),
+                  size: 50,
+                ),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -288,7 +298,9 @@ class AppDrawer extends StatelessWidget {
                 decoration: InputDecoration(
                   labelText: 'ชื่อ-นามสกุล',
                   prefixIcon: const Icon(Icons.person_outline),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 15),
@@ -297,7 +309,9 @@ class AppDrawer extends StatelessWidget {
                 decoration: InputDecoration(
                   labelText: 'อีเมล',
                   prefixIcon: const Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -320,9 +334,14 @@ class AppDrawer extends StatelessWidget {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF9A2C2C),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: const Text('บันทึก', style: TextStyle(color: Colors.white)),
+              child: const Text(
+                'บันทึก',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -335,7 +354,9 @@ class AppDrawer extends StatelessWidget {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Row(
             children: [
               Icon(Icons.logout, color: Colors.red, size: 28),
@@ -360,9 +381,14 @@ class AppDrawer extends StatelessWidget {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: const Text('ออกจากระบบ', style: TextStyle(color: Colors.white)),
+              child: const Text(
+                'ออกจากระบบ',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );

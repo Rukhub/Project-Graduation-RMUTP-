@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:ui' as ui;
 import 'api_service.dart';
+import 'package:gal/gal.dart'; // Import Gal package
+import 'inspect_equipment_screen.dart'; // Import Inspect Screen
+import 'report_problem_screen.dart'; // Import Report Screen
 
 class EquipmentDetailScreen extends StatefulWidget {
   final Map<String, dynamic> equipment;
@@ -47,55 +55,60 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     originalStatus = equipmentStatus;
 
     // โหลดข้อมูลผู้ตรวจ (Handle snake_case from API)
-    inspectorName = widget.equipment['inspectorName'] ?? widget.equipment['checker_name'];
+    inspectorName =
+        widget.equipment['inspectorName'] ?? widget.equipment['checker_name'];
     if (widget.equipment['inspectorImages'] != null) {
-       // ... existing logic for list ...
-       if (widget.equipment['inspectorImages'] is List) {
-         inspectorImages = List<String>.from(widget.equipment['inspectorImages']);
-       }
+      // ... existing logic for list ...
+      if (widget.equipment['inspectorImages'] is List) {
+        inspectorImages = List<String>.from(
+          widget.equipment['inspectorImages'],
+        );
+      }
     }
 
     // โหลดข้อมูลผู้แจ้ง
-    reporterName = widget.equipment['reporterName'] ?? widget.equipment['reporter_name'];
-    
+    reporterName =
+        widget.equipment['reporterName'] ?? widget.equipment['reporter_name'];
+
     // Check for reason keys: reportReason (local), report_reason (DB), issue_detail (DB)
-    reportReason = widget.equipment['reportReason'] ?? 
-                   widget.equipment['report_reason'] ?? 
-                   widget.equipment['issue_detail'];
-                   
+    reportReason =
+        widget.equipment['reportReason'] ??
+        widget.equipment['report_reason'] ??
+        widget.equipment['issue_detail'];
+
     if (widget.equipment['reportImages'] != null) {
-       if (widget.equipment['reportImages'] is List) {
-         reportImages = List<String>.from(widget.equipment['reportImages']);
-       }
+      if (widget.equipment['reportImages'] is List) {
+        reportImages = List<String>.from(widget.equipment['reportImages']);
+      }
     }
-    
+
     // 🔥 Fetch real report data from API if status is Broken/Repairing
     if (shouldShowReporter) {
       _loadReportData();
     }
+
+    // Always refresh latest data to get correct inspector name
+    _loadLatestData();
   }
 
   Future<void> _loadReportData() async {
     try {
       final reports = await ApiService().getReports();
-      
-      // Filter reports for this asset
       String myId = widget.equipment['asset_id'] ?? widget.equipment['id'];
-      
-      final myReports = reports.where((r) => 
-        r['asset_id'].toString() == myId.toString()
-      ).toList();
-      
+
+      final myReports = reports
+          .where((r) => r['asset_id'].toString() == myId.toString())
+          .toList();
+
       if (myReports.isNotEmpty) {
-        // Sort by ID descending (Latest first) assuming higher ID = newer
-        myReports.sort((a, b) => (b['report_id'] ?? 0).compareTo(a['report_id'] ?? 0));
-        
+        myReports.sort(
+          (a, b) => (b['report_id'] ?? 0).compareTo(a['report_id'] ?? 0),
+        );
         final latestReport = myReports.first;
         if (mounted) {
           setState(() {
             reporterName = latestReport['reporter_name'];
             reportReason = latestReport['issue_detail'];
-            // reportImages can be handled here if API provides them
           });
         }
       }
@@ -104,15 +117,60 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     }
   }
 
+  // Reload latest asset data (to get updated inspector/status)
+  Future<void> _loadLatestData() async {
+    try {
+      // We don't have getAssetById, so we fetch assets by location and filter
+      // (Optimization: In real app, should have getAssetById API)
+      int locationId =
+          int.tryParse(widget.equipment['location_id'].toString()) ?? 0;
+      if (locationId == 0) return;
+
+      final assets = await ApiService().getAssetsByLocation(locationId);
+      final myId =
+          widget.equipment['asset_id']?.toString() ??
+          widget.equipment['id']?.toString();
+
+      final updatedAsset = assets.firstWhere(
+        (a) =>
+            (a['asset_id']?.toString() == myId) ||
+            (a['id']?.toString() == myId),
+        orElse: () => {},
+      );
+
+      if (updatedAsset.isNotEmpty && mounted) {
+        setState(() {
+          // Update Status
+          equipmentStatus = updatedAsset['status'] ?? equipmentStatus;
+          originalStatus = equipmentStatus;
+
+          // Update Inspector
+          // API Mapping: checker_name -> inspectorName
+          inspectorName =
+              updatedAsset['checker_name'] ?? updatedAsset['inspectorName'];
+
+          // Update Images
+          if (updatedAsset['image_url'] != null &&
+              updatedAsset['image_url'].toString().isNotEmpty) {
+            // If API returns single string, wrap in list if needed, or handle as existing logic
+            // Here we assume simple handling or existing logic
+            // imagePaths = [updatedAsset['image_url']];
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing asset data: $e');
+    }
+  }
 
   bool get hasStatusChanged => equipmentStatus != originalStatus;
 
   // ตรวจสอบว่าควรแสดงข้อมูลผู้ตรวจหรือไม่
-  bool get shouldShowInspector => 
+  bool get shouldShowInspector =>
       equipmentStatus == 'ปกติ' || equipmentStatus == 'อยู่ระหว่างซ่อม';
 
   // ตรวจสอบว่าควรแสดงข้อมูลผู้แจ้งหรือไม่
-  bool get shouldShowReporter => 
+  bool get shouldShowReporter =>
       equipmentStatus == 'ชำรุด' || equipmentStatus == 'อยู่ระหว่างซ่อม';
 
   Future<void> _pickImageFromGallery() async {
@@ -144,19 +202,32 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Row(
             children: const [
-              Icon(Icons.add_photo_alternate, color: Color(0xFF9A2C2C), size: 28),
+              Icon(
+                Icons.add_photo_alternate,
+                color: Color(0xFF9A2C2C),
+                size: 28,
+              ),
               SizedBox(width: 10),
-              Text('เพิ่มรูปภาพ', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'เพิ่มรูปภาพ',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.camera_alt, color: Color(0xFF5593E4), size: 30),
+                leading: const Icon(
+                  Icons.camera_alt,
+                  color: Color(0xFF5593E4),
+                  size: 30,
+                ),
                 title: const Text('ถ่ายรูป', style: TextStyle(fontSize: 16)),
                 onTap: () {
                   Navigator.pop(context);
@@ -165,8 +236,15 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               ),
               const Divider(),
               ListTile(
-                leading: const Icon(Icons.photo_library, color: Color(0xFF99CD60), size: 30),
-                title: const Text('เลือกจาก Gallery', style: TextStyle(fontSize: 16)),
+                leading: const Icon(
+                  Icons.photo_library,
+                  color: Color(0xFF99CD60),
+                  size: 30,
+                ),
+                title: const Text(
+                  'เลือกจาก Gallery',
+                  style: TextStyle(fontSize: 16),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _pickImageFromGallery();
@@ -187,34 +265,61 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               title: Row(
                 children: const [
                   Icon(Icons.edit_note, color: Color(0xFF9A2C2C), size: 28),
                   SizedBox(width: 10),
-                  Text('เปลี่ยนสถานะ', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    'เปลี่ยนสถานะ',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildStatusOption('ปกติ', Colors.green, tempStatus, setDialogState, (value) {
-                    tempStatus = value;
-                  }),
+                  _buildStatusOption(
+                    'ปกติ',
+                    Colors.green,
+                    tempStatus,
+                    setDialogState,
+                    (value) {
+                      tempStatus = value;
+                    },
+                  ),
                   const SizedBox(height: 10),
-                  _buildStatusOption('ชำรุด', Colors.red, tempStatus, setDialogState, (value) {
-                    tempStatus = value;
-                  }),
+                  _buildStatusOption(
+                    'ชำรุด',
+                    Colors.red,
+                    tempStatus,
+                    setDialogState,
+                    (value) {
+                      Navigator.pop(context); // Close dialog first
+                      _navigateToReport();
+                    },
+                  ),
                   const SizedBox(height: 10),
-                  _buildStatusOption('อยู่ระหว่างซ่อม', Colors.orange, tempStatus, setDialogState, (value) {
-                    tempStatus = value;
-                  }),
+                  _buildStatusOption(
+                    'อยู่ระหว่างซ่อม',
+                    Colors.orange,
+                    tempStatus,
+                    setDialogState,
+                    (value) {
+                      tempStatus = value;
+                    },
+                  ),
                 ],
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+                  child: const Text(
+                    'ยกเลิก',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -225,9 +330,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9A2C2C),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('บันทึก', style: TextStyle(color: Colors.white)),
+                  child: const Text(
+                    'บันทึก',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
               ],
             );
@@ -237,8 +347,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     );
   }
 
-  Widget _buildStatusOption(String status, Color color, String currentStatus, 
-      StateSetter setDialogState, Function(String) onSelect) {
+  Widget _buildStatusOption(
+    String status,
+    Color color,
+    String currentStatus,
+    StateSetter setDialogState,
+    Function(String) onSelect,
+  ) {
     bool isSelected = currentStatus == status;
     return InkWell(
       onTap: () {
@@ -249,7 +364,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha:0.15) : Colors.grey.shade100,
+          color: isSelected
+              ? color.withValues(alpha: 0.15)
+              : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? color : Colors.grey.shade300,
@@ -283,83 +400,107 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     Color statusColor = originalStatus == 'ปกติ'
         ? Colors.green
         : originalStatus == 'ชำรุด'
-            ? Colors.red
-            : Colors.orange;
+        ? Colors.red
+        : Colors.orange;
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF9A2C2C),
-        leading: IconButton(
-          icon: const CircleAvatar(
-            backgroundColor: Colors.white,
-            radius: 16,
-            child: Icon(Icons.arrow_back_ios_new, size: 16, color: Color(0xFF9A2C2C)),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        Navigator.pop(context, {
+          'status': equipmentStatus,
+          'inspectorName': inspectorName,
+          'image_url': imagePaths.isNotEmpty ? imagePaths.first : null,
+          'images': imagePaths,
+        });
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF9A2C2C),
+          leading: IconButton(
+            icon: const CircleAvatar(
+              backgroundColor: Colors.white,
+              radius: 16,
+              child: Icon(
+                Icons.arrow_back_ios_new,
+                size: 16,
+                color: Color(0xFF9A2C2C),
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(context, {
+                'status': equipmentStatus,
+                'inspectorName': inspectorName,
+                'image_url': imagePaths.isNotEmpty ? imagePaths.first : null,
+                'images': imagePaths,
+              });
+            },
           ),
-          onPressed: () => Navigator.pop(context),
+          centerTitle: true,
+          title: Column(
+            children: [
+              Text(
+                widget.equipment['asset_id'] ??
+                    widget.equipment['id'] ??
+                    'ไม่ระบุรหัส',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              Text(
+                widget.roomName,
+                style: const TextStyle(fontSize: 14, color: Colors.white70),
+              ),
+            ],
+          ),
+          toolbarHeight: 80,
         ),
-        centerTitle: true,
-        title: Column(
+        body: ListView(
+          padding: const EdgeInsets.all(20),
           children: [
-            Text(
-              widget.equipment['asset_id'] ?? widget.equipment['id'] ?? 'ไม่ระบุรหัส',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+            // รูปภาพครุภัณฑ์ปกติ
+            _buildImageSection(
+              title: 'รูปภาพครุภัณฑ์',
+              images: imagePaths,
+              color: const Color(0xFF5593E4),
+              onAddImage: _showImageSourceDialog,
+              onDeleteImage: _deleteImage,
             ),
-            Text(
-              widget.roomName,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.white70,
-              ),
-            ),
+            const SizedBox(height: 20),
+
+            // ข้อมูลพื้นฐาน
+            _buildBasicInfoSection(),
+            const SizedBox(height: 20),
+
+            // สถานะ
+            _buildStatusSection(statusColor),
+            const SizedBox(height: 20),
+
+            // ข้อมูลผู้ตรวจ (แสดงเมื่อ ปกติ หรือ อยู่ระหว่างซ่อม)
+            if (shouldShowInspector) ...[
+              _buildInspectorSection(),
+              const SizedBox(height: 20),
+            ],
+
+            // ข้อมูลผู้แจ้ง (แสดงเมื่อ ชำรุด หรือ อยู่ระหว่างซ่อม)
+            if (shouldShowReporter) ...[
+              _buildReporterSection(),
+              const SizedBox(height: 20),
+            ],
+
+            // ปุ่มยืนยัน (แสดงเมื่อสถานะเปลี่ยน)
+            if (hasStatusChanged) ...[
+              _buildConfirmButton(),
+              const SizedBox(height: 20),
+            ],
+
+            // QR Code Section (ย้ายมาไว้ท้ายสุด)
+            _buildQRCodeSection(),
           ],
         ),
-        toolbarHeight: 80,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          // รูปภาพครุภัณฑ์ปกติ
-          _buildImageSection(
-            title: 'รูปภาพครุภัณฑ์',
-            images: imagePaths,
-            color: const Color(0xFF5593E4),
-            onAddImage: _showImageSourceDialog,
-            onDeleteImage: _deleteImage,
-          ),
-          const SizedBox(height: 20),
-
-          // ข้อมูลพื้นฐาน
-          _buildBasicInfoSection(),
-          const SizedBox(height: 20),
-
-          // สถานะ
-          _buildStatusSection(statusColor),
-          const SizedBox(height: 20),
-
-          // ข้อมูลผู้ตรวจ (แสดงเมื่อ ปกติ หรือ อยู่ระหว่างซ่อม)
-          if (shouldShowInspector) ...[
-            _buildInspectorSection(),
-            const SizedBox(height: 20),
-          ],
-
-          // ข้อมูลผู้แจ้ง (แสดงเมื่อ ชำรุด หรือ อยู่ระหว่างซ่อม)
-          if (shouldShowReporter) ...[
-            _buildReporterSection(),
-            const SizedBox(height: 20),
-          ],
-
-          // ปุ่มยืนยัน (แสดงเมื่อสถานะเปลี่ยน)
-          if (hasStatusChanged) ...[
-            _buildConfirmButton(),
-          ],
-          
-          const SizedBox(height: 80),
-        ],
       ),
     );
   }
@@ -379,7 +520,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha:0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -393,7 +534,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.photo_library, color: Colors.grey.shade700, size: 24),
+                  Icon(
+                    Icons.photo_library,
+                    color: Colors.grey.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     title,
@@ -406,9 +551,12 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 ],
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha:0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
@@ -455,7 +603,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha:0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -479,11 +627,33 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          _buildInfoRow(Icons.qr_code, 'รหัสครุภัณฑ์', widget.equipment['asset_id'] ?? widget.equipment['id'] ?? '-', const Color(0xFF5593E4)),
+          _buildInfoRow(
+            Icons.qr_code,
+            'รหัสครุภัณฑ์',
+            widget.equipment['asset_id'] ?? widget.equipment['id'] ?? '-',
+            const Color(0xFF5593E4),
+          ),
           const Divider(height: 30),
-          _buildInfoRow(Icons.category, 'ประเภท', widget.equipment['type'] ?? '-', const Color(0xFF99CD60)),
+          _buildInfoRow(
+            Icons.branding_watermark,
+            'ยี่ห้อ/รุ่น',
+            widget.equipment['brand_model'] ?? '-',
+            const Color(0xFFFECC52),
+          ),
           const Divider(height: 30),
-          _buildInfoRow(Icons.location_on, 'ห้อง', widget.roomName, const Color(0xFF9A2C2C)),
+          _buildInfoRow(
+            Icons.category,
+            'ประเภท',
+            widget.equipment['type'] ?? '-',
+            const Color(0xFF99CD60),
+          ),
+          const Divider(height: 30),
+          _buildInfoRow(
+            Icons.location_on,
+            'ห้อง',
+            widget.roomName,
+            const Color(0xFF9A2C2C),
+          ),
         ],
       ),
     );
@@ -500,7 +670,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha:0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -511,15 +681,15 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: statusColor.withValues(alpha:0.15),
+                color: statusColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 originalStatus == 'ปกติ'
                     ? Icons.check_circle
                     : originalStatus == 'ชำรุด'
-                        ? Icons.error
-                        : Icons.build_circle,
+                    ? Icons.error
+                    : Icons.build_circle,
                 color: statusColor,
                 size: 28,
               ),
@@ -531,10 +701,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 children: [
                   Text(
                     'สถานะ',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 5),
                   Text(
@@ -564,7 +731,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha:0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -574,22 +741,55 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF5593E4).withValues(alpha:0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.person_search, color: Color(0xFF5593E4), size: 24),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5593E4).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.person_search,
+                      color: Color(0xFF5593E4),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'ผู้ตรวจสอบ',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Text(
-                'ผู้ตรวจสอบ',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
+              // ปุ่มไปหน้าตรวจสภาพ (Inspect)
+              TextButton.icon(
+                onPressed: () async {
+                  // Navigate to Inspect Screen
+                  // Need to import valid file or pass correct route
+                  // Assuming InspectEquipmentScreen is available (imported in krupan_room.dart, need here too?)
+                  // Wait, I need to check imports. If not imported, I have to add import first.
+                  // But let's assume it's available or I'll add import in another chunk.
+
+                  await _navigateToInspect();
+                },
+                icon: const Icon(
+                  Icons.fact_check,
+                  size: 18,
+                  color: Color(0xFF5593E4),
+                ),
+                label: const Text(
+                  'บันทึกการตรวจ',
+                  style: TextStyle(
+                    color: Color(0xFF5593E4),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -607,53 +807,90 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               children: [
                 Icon(Icons.person, color: Colors.grey.shade600, size: 22),
                 const SizedBox(width: 12),
-                Text(
-                  inspectorName ?? 'ยังไม่มีผู้ตรวจสอบ',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: inspectorName != null ? Colors.black87 : Colors.grey.shade500,
-                    fontStyle: inspectorName != null ? FontStyle.normal : FontStyle.italic,
+                Expanded(
+                  child: Text(
+                    inspectorName ?? 'ยังไม่มีผู้ตรวจสอบ',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: inspectorName != null
+                          ? Colors.black87
+                          : Colors.grey.shade500,
+                      fontStyle: inspectorName != null
+                          ? FontStyle.normal
+                          : FontStyle.italic,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          // รูปภาพจากผู้ตรวจ
-          if (inspectorImages.isNotEmpty) ...[
-            const SizedBox(height: 15),
-            Text(
-              'รูปภาพจากผู้ตรวจ',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 80,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: inspectorImages.length,
-                itemBuilder: (context, index) {
-                  return Container(
-                    width: 80,
-                    margin: const EdgeInsets.only(right: 10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      image: DecorationImage(
-                        image: FileImage(File(inspectorImages[index])),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+          // ... images ...
         ],
       ),
     );
+  }
+
+  Future<void> _navigateToInspect() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => InspectEquipmentScreen(
+          equipment: widget.equipment,
+          roomName: widget.roomName,
+        ),
+      ),
+    );
+
+    // Update UI immediately from result
+    if (result != null && result is Map && mounted) {
+      setState(() {
+        if (result['status'] != null) {
+          equipmentStatus = result['status'];
+          originalStatus = equipmentStatus;
+        }
+        if (result['checkerName'] != null) {
+          inspectorName = result['checkerName'];
+        }
+      });
+    }
+
+    // Refresh data form API to be sure (Delay slightly to allow DB update)
+    await _loadLatestData();
+  }
+
+  Future<void> _navigateToReport() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ReportProblemScreen(
+          equipment: widget.equipment,
+          roomName: widget.roomName,
+        ),
+      ),
+    );
+
+    // Update UI immediately from result
+    if (result != null && result is Map && mounted) {
+      setState(() {
+        if (result['status'] != null) {
+          equipmentStatus = result['status'];
+          originalStatus = equipmentStatus;
+        }
+        if (result['reporterName'] != null) {
+          reporterName = result['reporterName'];
+        }
+        if (result['reportReason'] != null) {
+          reportReason = result['reportReason'];
+        }
+        if (result['issue_detail'] != null) {
+          reportReason = result['issue_detail']; // Support both keys
+        }
+      });
+    }
+
+    // Refresh data from API to be sure
+    await Future.delayed(const Duration(seconds: 1));
+    await _loadLatestData();
   }
 
   // Section ผู้แจ้ง
@@ -666,7 +903,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         border: Border.all(color: Colors.red.shade100, width: 2),
         boxShadow: [
           BoxShadow(
-            color: Colors.red.withValues(alpha:0.08),
+            color: Colors.red.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -680,10 +917,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha:0.15),
+                  color: Colors.red.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.report_problem, color: Colors.red, size: 24),
+                child: const Icon(
+                  Icons.report_problem,
+                  color: Colors.red,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               Column(
@@ -706,7 +947,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          
+
           // ชื่อผู้แจ้ง
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -719,7 +960,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 CircleAvatar(
                   backgroundColor: Colors.white,
                   radius: 18,
-                  child: Icon(Icons.person, color: Colors.red.shade400, size: 20),
+                  child: Icon(
+                    Icons.person,
+                    color: Colors.red.shade400,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Column(
@@ -727,7 +972,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   children: [
                     Text(
                       'ผู้แจ้ง',
-                      style: TextStyle(fontSize: 12, color: Colors.red.shade300),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade300,
+                      ),
                     ),
                     Text(
                       reporterName ?? 'ยังไม่มีผู้แจ้ง',
@@ -735,7 +983,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                         color: Colors.red.shade900,
-                        fontStyle: reporterName != null ? FontStyle.normal : FontStyle.italic,
+                        fontStyle: reporterName != null
+                            ? FontStyle.normal
+                            : FontStyle.italic,
                       ),
                     ),
                   ],
@@ -743,7 +993,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               ],
             ),
           ),
-          
+
           // เหตุผล (Report Reason)
           // Always show this section if there's a problem, show placeholder if empty but status is broken
           if (reportReason != null || equipmentStatus == 'ชำรุด') ...[
@@ -775,8 +1025,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    (reportReason != null && reportReason!.isNotEmpty) 
-                        ? reportReason! 
+                    (reportReason != null && reportReason!.isNotEmpty)
+                        ? reportReason!
                         : 'ไม่ได้ระบุรายละเอียด',
                     style: TextStyle(
                       fontSize: 15,
@@ -818,12 +1068,12 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                         fit: BoxFit.cover,
                       ),
                       boxShadow: [
-                         BoxShadow(
-                          color: Colors.black.withValues(alpha:0.05),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
-                         )
-                      ]
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -848,7 +1098,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF99CD60).withValues(alpha:0.4),
+            color: const Color(0xFF99CD60).withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -859,10 +1109,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha:0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.info_outline, color: Colors.white, size: 24),
+            child: const Icon(
+              Icons.info_outline,
+              color: Colors.white,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -880,7 +1134,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 Text(
                   '$originalStatus → $equipmentStatus',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha:0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 13,
                   ),
                 ),
@@ -911,7 +1165,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               backgroundColor: Colors.white,
               foregroundColor: const Color(0xFF99CD60),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 0,
             ),
           ),
@@ -943,20 +1199,22 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           const SizedBox(height: 8),
           Text(
             'กดปุ่มด้านล่างเพื่อเพิ่มรูป',
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onAddImage,
             icon: const Icon(Icons.add_photo_alternate, color: Colors.white),
-            label: const Text('เพิ่มรูปภาพ', style: TextStyle(color: Colors.white)),
+            label: const Text(
+              'เพิ่มรูปภาพ',
+              style: TextStyle(color: Colors.white),
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF9A2C2C),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ],
@@ -969,10 +1227,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       onTap: onAddImage,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF9A2C2C).withValues(alpha:0.1),
+          color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color(0xFF9A2C2C).withValues(alpha:0.3),
+            color: const Color(0xFF9A2C2C).withValues(alpha: 0.3),
             width: 2,
           ),
         ),
@@ -985,7 +1243,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     );
   }
 
-  Widget _buildImageCard(List<String> images, int index, Function(int) onDelete) {
+  Widget _buildImageCard(
+    List<String> images,
+    int index,
+    Function(int) onDelete,
+  ) {
     return Stack(
       children: [
         Container(
@@ -1029,10 +1291,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             children: [
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1048,5 +1307,295 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         ),
       ],
     );
+  }
+
+  // QR Code Section
+  Widget _buildQRCodeSection() {
+    final assetId =
+        widget.equipment['asset_id'] ?? widget.equipment['id'] ?? 'UNKNOWN';
+    final qrData = 'EQUIP:$assetId'; // รูปแบบ QR: EQUIP:KUYKRIS
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.qr_code_2, color: Colors.grey.shade700, size: 24),
+                  const SizedBox(width: 10),
+                  Text(
+                    'QR Code ครุภัณฑ์',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => _saveQRCodeToGallery(qrData, assetId),
+                    icon: const Icon(Icons.save_alt, color: Color(0xFF9A2C2C)),
+                    tooltip: 'บันทึกลงเครื่อง',
+                  ),
+                  IconButton(
+                    onPressed: () => _shareQRCode(qrData, assetId),
+                    icon: const Icon(Icons.share, color: Color(0xFF9A2C2C)),
+                    tooltip: 'แชร์ QR Code',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF9A2C2C), width: 3),
+            ),
+            child: QrImageView(
+              data: qrData,
+              version: QrVersions.auto,
+              size: 200.0,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: Color(0xFF9A2C2C),
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: Color(0xFF9A2C2C),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 15),
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: Color(0xFF9A2C2C),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'สแกนเพื่อดูรายละเอียดครุภัณฑ์',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ฟังก์ชันแชร์ QR Code
+  Future<void> _shareQRCode(String qrData, String assetId) async {
+    try {
+      // สร้าง QR Code เป็นรูปภาพ
+      final qrValidationResult = QrValidator.validate(
+        data: qrData,
+        version: QrVersions.auto,
+        errorCorrectionLevel: QrErrorCorrectLevel.H,
+      );
+
+      if (qrValidationResult.status == QrValidationStatus.valid) {
+        final qrCode = qrValidationResult.qrCode!;
+        final painter = QrPainter.withQr(
+          qr: qrCode,
+          gapless: true,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: Color(0xFF9A2C2C),
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: Color(0xFF9A2C2C),
+          ),
+        );
+
+        // แสดง loading
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('กำลังสร้าง QR Code...'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+
+        // แปลงเป็น image
+        final picData = await painter.toImageData(
+          512,
+          format: ui.ImageByteFormat.png,
+        );
+
+        if (picData != null) {
+          try {
+            // บันทึกชั่วคราว - ตรวจสอบว่า path_provider พร้อมหรือยัง
+            final directory = await getTemporaryDirectory();
+            final path = '${directory.path}/QR_$assetId.png';
+            final file = File(path);
+            await file.writeAsBytes(picData.buffer.asUint8List());
+
+            // แชร์ไฟล์
+            await Share.shareXFiles([
+              XFile(path),
+            ], text: 'QR Code ครุภัณฑ์: $assetId\nสแกนเพื่อดูรายละเอียด');
+          } on PlatformException catch (e) {
+            // จัดการกรณี path_provider ยังไม่พร้อม หรือไม่ได้ Restart
+            debugPrint('⚠️ Platform error: ${e.message}');
+
+            String errorMessage = 'กรุณารอสักครู่แล้วลองใหม่อีกครั้ง';
+            // ตรวจสอบว่าเป็น error เรื่อง channel connection หรือไม่
+            if (e.code == 'channel-error' ||
+                e.message?.contains('Unable to establish connection') == true) {
+              errorMessage =
+                  'กรุณาปิดและเปิดแอพใหม่ (Stop & Run) เพื่อใช้งานฟีเจอร์นี้';
+            }
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(errorMessage),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('🚨 Share QR error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: ${e.toString().split('\n').first}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // ฟังก์ชันบันทึก QR Code ลง Gallery
+  Future<void> _saveQRCodeToGallery(String qrData, String assetId) async {
+    try {
+      // 1. สร้าง QR Code Image
+      final qrValidationResult = QrValidator.validate(
+        data: qrData,
+        version: QrVersions.auto,
+        errorCorrectionLevel: QrErrorCorrectLevel.H,
+      );
+
+      if (qrValidationResult.status == QrValidationStatus.valid) {
+        final qrCode = qrValidationResult.qrCode!;
+        final painter = QrPainter.withQr(
+          qr: qrCode,
+          gapless: true,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: Color(0xFF9A2C2C),
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: Color(0xFF9A2C2C),
+          ),
+          embeddedImageStyle: null,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('กำลังบันทึกรูปภาพ...'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+
+        // 2. แปลงเป็นไฟล์ชั่วคราว
+        final picData = await painter.toImageData(
+          512,
+          format: ui.ImageByteFormat.png,
+        );
+
+        if (picData != null) {
+          final directory = await getTemporaryDirectory();
+          final path = '${directory.path}/QR_$assetId.png';
+          final file = File(path);
+          await file.writeAsBytes(picData.buffer.asUint8List());
+
+          // 3. บันทึกลง Gallery ด้วย Gal
+          await Gal.putImage(path);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('บันทึกลง Gallery เรียบร้อยแล้ว ✅'),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      }
+    } on GalException catch (e) {
+      debugPrint('🚨 Gal Error: $e');
+      String errorMsg = 'เกิดข้อผิดพลาดในการบันทึก';
+      if (e.type == GalExceptionType.accessDenied) {
+        errorMsg = 'ไม่ได้รับอนุญาตให้เข้าถึงรูปภาพ กรุณาเปิดสิทธิ์ในตั้งค่า';
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      debugPrint('🚨 Save Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

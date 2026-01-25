@@ -111,7 +111,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
       });
       
     } catch (e) {
-      print('Error loading locations: $e');
+      debugPrint('Error loading locations: $e');
       setState(() => _isLoading = false);
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'menu.dart';
 import 'api_service.dart';
+import 'google_sign_in_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -212,26 +213,73 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                     const SizedBox(height: 40),
-                    Column(
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: Colors.white,
-                          child: ClipOval(
-                            child: Image.network(
-                              'https://play-lh.googleusercontent.com/jg2lAQET3kV_-6fhPQ_TcDyDItUdDcO7euuUNcANIn78_XJUmCtFBJzEdP3nG4_e2kM=w240-h480-rw',
-                              width: 56,
-                              height: 56,
-                              fit: BoxFit.cover,
+                        // Google Button
+                        Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _handleGoogleLogin,
+                              child: CircleAvatar(
+                                radius: 28,
+                                backgroundColor: Colors.white,
+                                // Google Logo
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Image.network(
+                                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/768px-Google_%22G%22_logo.svg.png',
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                            const Text('Google', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          ],
                         ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Login with your others account',
-                          style: TextStyle(color: Colors.grey),
+                        const SizedBox(width: 40), // Spacing
+                        // ThaID Button (Show only)
+                        Column(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('ThaID login coming soon!')),
+                                );
+                              },
+                              child: CircleAvatar(
+                                radius: 28,
+                                backgroundColor: Colors.white,
+                                child: ClipOval(
+                                  child: Image.network(
+                                    'https://play-lh.googleusercontent.com/jg2lAQET3kV_-6fhPQ_TcDyDItUdDcO7euuUNcANIn78_XJUmCtFBJzEdP3nG4_e2kM=w240-h480-rw', // Existing ThaID Image
+                                    width: 56,
+                                    height: 56,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('ThaID', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          ],
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Login with your others account',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: _handleBypassLogin,
+                      icon: const Icon(Icons.developer_mode, color: Colors.grey),
+                      label: const Text(
+                        'Skip Login (Dev Mode)',
+                        style: TextStyle(color: Colors.grey),
+                      ),
                     ),
                   ],
                 ),
@@ -241,5 +289,119 @@ class _LoginPageState extends State<LoginPage> {
         ],
       ),
     );
+  }
+
+  /// ล็อกอินด้วย Google Account (จำกัดเฉพาะ @rmutp.ac.th)
+  void _handleGoogleLogin() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // 1. เรียก Google Sign-In
+      final googleAccount = await GoogleSignInService().signInWithGoogle();
+
+      if (googleAccount == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'ยกเลิกการล็อกอินด้วย Google';
+        });
+        return;
+      }
+
+      // 2. ส่งข้อมูลไปยัง Backend
+      final result = await ApiService().googleLogin(
+        googleId: googleAccount.id,
+        email: googleAccount.email,
+        displayName: googleAccount.displayName ?? 'Google User',
+        photoUrl: googleAccount.photoUrl,
+      );
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (result != null) {
+        // กรณีที่ 1: มี Error Message จาก Backend (403)
+        if (result['error'] == true) {
+          setState(() {
+            _errorMessage = result['message'] ?? 'เข้าใช้งานไม่ได้';
+          });
+          return;
+        }
+
+        // กรณีที่ 2: ลงทะเบียนใหม่สำเร็จ แต่ต้องรอ Admin อนุมัติ
+        if (result['pending_approval'] == true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  result['message'] ?? 'กรุณารอแอดมินอนุมัติเข้าใช้งาน',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          // ออกจากระบบ Google เพราะยังเข้าใช้งานไม่ได้
+          await GoogleSignInService().signOut();
+          return;
+        }
+
+        // กรณีที่ 3: Login สำเร็จ (มี user object)
+        if (result['user_id'] != null || result['email'] != null) {
+          ApiService().currentUser = result;
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MenuScreen()),
+            );
+          }
+        } else {
+          setState(() {
+            _errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
+          });
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'ไม่สามารถเชื่อมต่อ Server ได้';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+      });
+    }
+  }
+
+  void _handleBypassLogin() {
+    // Mock User Data for testing without backend
+    final mockUser = {
+      'user_id': 9999, // Use int as typical IDs might be int
+      'username': 'dev_user',
+      'fullname': 'Developer Mode',
+      'role': 'admin',
+      'position': 'Developer'
+    };
+    
+    ApiService().currentUser = mockUser;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Entered Developer Mode (Offline)'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MenuScreen()),
+      );
+    }
   }
 }

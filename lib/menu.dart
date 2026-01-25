@@ -3,6 +3,7 @@ import 'krupan.dart';
 import 'add_equipment_quick.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
+import 'qr_scanner_screen.dart';
 import 'app_drawer.dart';
 import 'main.dart';  // สำหรับ LoginPage
 
@@ -98,6 +99,18 @@ class _MenuScreenState extends State<MenuScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => const KrupanScreen(),
+                  ),
+                );
+              },
+            ),
+            MenuItem(
+              imageUrl: 'https://cdn-icons-png.flaticon.com/512/4108/4108996.png',
+              title: 'Scan QR Code - หาครุภัณฑ์',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const QRScannerScreen(),
                   ),
                 );
               },

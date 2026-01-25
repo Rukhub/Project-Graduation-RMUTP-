@@ -9,7 +9,8 @@ class ApiService {
   ApiService._internal();
 
   // Ngrok URL จากเพื่อน
-  static const String baseUrl = 'https://engrainedly-uredial-chloe.ngrok-free.dev/api';
+  static const String baseUrl =
+      'https://engrainedly-uredial-chloe.ngrok-free.dev/api';
 
   // เก็บข้อมูลผู้ใช้ที่ล็อกอิน (currentUser)
   Map<String, dynamic>? currentUser;
@@ -19,17 +20,14 @@ class ApiService {
     try {
       debugPrint('🔄 กำลังเรียก API: $baseUrl/login');
       debugPrint('📧 Username: $username');
-      
+
       final response = await http.post(
-        Uri.parse('$baseUrl/login'),  // Node.js ใช้ /login ไม่ใช่ /login.php
+        Uri.parse('$baseUrl/login'), // Node.js ใช้ /login ไม่ใช่ /login.php
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',  // สำหรับ ngrok
+          'ngrok-skip-browser-warning': 'true', // สำหรับ ngrok
         },
-        body: jsonEncode({
-          'username': username,
-          'password': password,
-        }),
+        body: jsonEncode({'username': username, 'password': password}),
       );
 
       debugPrint('📡 Status Code: ${response.statusCode}');
@@ -50,6 +48,70 @@ class ApiService {
       return null;
     } catch (e) {
       debugPrint('🚨 Login error: $e');
+      return null;
+    }
+  }
+
+  /// ล็อกอินด้วย Google Account (เฉพาะ @rmutp.ac.th)
+  Future<Map<String, dynamic>?> googleLogin({
+    required String googleId,
+    required String email,
+    required String displayName,
+    String? photoUrl,
+  }) async {
+    try {
+      debugPrint('🔄 กำลังล็อกอินด้วย Google: $email');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/google-login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: jsonEncode({
+          'google_id': googleId,
+          'email': email,
+          'fullname': displayName,
+          'photo_url': photoUrl,
+        }),
+      );
+
+      debugPrint('📡 Google Login Status: ${response.statusCode}');
+      debugPrint('📄 Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // กรณีที่ 1: Login สำเร็จ (มี user object)
+        if (data['user'] != null) {
+          debugPrint('✅ Google Login สำเร็จ!');
+          currentUser = data['user'];
+          return data['user'];
+        }
+        
+        // กรณีที่ 2: ลงทะเบียนใหม่สำเร็จ แต่ต้องรอ Approve (ไม่มี user object)
+        if (data['user_id'] != null) {
+          debugPrint('⏳ ลงทะเบียนสำเร็จ แต่ต้องรอ Admin อนุมัติ');
+          return {
+            'pending_approval': true,
+            'message': data['message'] ?? 'กรุณารอแอดมินอนุมัติ'
+          };
+        }
+      } else if (response.statusCode == 403) {
+        final data = jsonDecode(response.body);
+        debugPrint('❌ Error 403: ${data['message']}');
+        
+        // ส่ง error message กลับไปให้ UI แสดง
+        return {
+          'error': true,
+          'message': data['message'] ?? 'เข้าใช้งานไม่ได้'
+        };
+      }
+
+      debugPrint('❌ Google Login ไม่สำเร็จ');
+      return null;
+    } catch (e) {
+      debugPrint('🚨 Google login error: $e');
       return null;
     }
   }
@@ -86,7 +148,7 @@ class ApiService {
       final String urlString = '$baseUrl/assets/room/$locationId';
       debugPrint('🔄 กำลังดึงครุภัณฑ์ในห้อง ID: $locationId');
       debugPrint('🔗 Endpoint: $urlString');
-      
+
       final response = await http.get(
         Uri.parse(urlString),
         headers: {
@@ -96,7 +158,7 @@ class ApiService {
       );
 
       debugPrint('📡 Status Code: ${response.statusCode}');
-      
+
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -110,11 +172,70 @@ class ApiService {
     }
   }
 
+  // ดึงข้อมูลครุภัณฑ์จาก asset_id (สำหรับ QR Code Scan)
+  // รวม JOIN กับ Location เพื่อดึงชื่อห้องมาด้วย
+  Future<Map<String, dynamic>?> getAssetById(String assetId) async {
+    try {
+      debugPrint('🔄 กำลังค้นหาครุภัณฑ์: $assetId');
+
+      // ดึงครุภัณฑ์ทั้งหมด
+      final assets = await getAssets();
+
+      // หาครุภัณฑ์ที่ตรงกับ asset_id
+      for (var asset in assets) {
+        if (asset['asset_id'] == assetId) {
+          debugPrint('✅ เจอครุภัณฑ์: ${asset['asset_id']}');
+
+          // ดึงข้อมูล location มาเพิ่ม ถ้ามี location_id
+          if (asset['location_id'] != null) {
+            try {
+              final locations = await getLocations();
+              final locationId = asset['location_id'];
+
+              // หา location ที่ตรงกัน
+              final matchingLocation = locations.firstWhere(
+                (loc) =>
+                    loc['location_id'] == locationId || loc['id'] == locationId,
+                orElse: () => {},
+              );
+
+              if (matchingLocation.isNotEmpty) {
+                // เพิ่มข้อมูลห้องเข้าไปใน asset
+                asset['location_name'] = matchingLocation['room_name'];
+                asset['floor'] = matchingLocation['floor'];
+                debugPrint(
+                  '🏠 พบข้อมูลห้อง: ${matchingLocation['room_name']} ชั้น ${matchingLocation['floor']}',
+                );
+              } else {
+                debugPrint('⚠️ ไม่พบข้อมูลห้องสำหรับ location_id: $locationId');
+              }
+            } catch (e) {
+              debugPrint('⚠️ ไม่สามารถดึงข้อมูลห้องได้: $e');
+            }
+          }
+
+          // แปลง asset_type เป็น type สำหรับ compatibility
+          if (asset['asset_type'] != null && asset['type'] == null) {
+            asset['type'] = asset['asset_type'];
+          }
+
+          return asset;
+        }
+      }
+
+      debugPrint('❌ ไม่พบครุภัณฑ์ $assetId');
+      return null;
+    } catch (e) {
+      debugPrint('🚨 Get asset by ID error: $e');
+      return null;
+    }
+  }
+
   // เพิ่มครุภัณฑ์ใหม่ (Asset)
   Future<Map<String, dynamic>> addAsset(Map<String, dynamic> assetData) async {
     try {
       debugPrint('🔄 กำลังเพิ่มครุภัณฑ์ใหม่: ${assetData['asset_id']}');
-      
+
       final response = await http.post(
         Uri.parse('$baseUrl/assets'),
         headers: {
@@ -123,14 +244,20 @@ class ApiService {
         },
         body: jsonEncode({
           'asset_id': assetData['asset_id'],
-          'asset_type': assetData['type'], // App uses 'type', Backend uses 'asset_type'
+          'asset_type':
+              assetData['type'], // App uses 'type', Backend uses 'asset_type'
           'brand_model': assetData['brand_model'],
           'location_id': assetData['location_id'],
           'status': assetData['status'],
-          'checker_name': assetData['inspectorName'], // App uses 'inspectorName'
-          'image_url': (assetData['images'] != null && (assetData['images'] as List).isNotEmpty) 
-              ? assetData['images'][0] 
-              : '', // Backend uses single 'image_url'
+          'checker_name':
+              assetData['inspectorName'], // App uses 'inspectorName'
+          'image_url':
+              (assetData['images'] != null &&
+                  (assetData['images'] as List).isNotEmpty)
+              ? assetData['images'][0]
+              : '',
+          'created_by': assetData['created_by'], // Add created_by
+          // Note: Backend might ignore extra fields, so this is safe.
         }),
       );
 
@@ -149,10 +276,13 @@ class ApiService {
 
   // แก้ไขครุภัณฑ์ (Asset)
   // Backend ต้องการครบทุก field: asset_id, asset_type, brand_model, location_id, status, checker_name, image_url
-  Future<Map<String, dynamic>> updateAsset(String id, Map<String, dynamic> assetData) async {
+  Future<Map<String, dynamic>> updateAsset(
+    String id,
+    Map<String, dynamic> assetData,
+  ) async {
     try {
       debugPrint('🔄 กำลังแก้ไขครุภัณฑ์ ID (Database): $id');
-      
+
       final response = await http.put(
         Uri.parse('$baseUrl/assets/$id'),
         headers: {
@@ -166,14 +296,18 @@ class ApiService {
           'location_id': assetData['location_id'],
           'status': assetData['status'],
           'checker_name': assetData['inspectorName'],
-          'image_url': (assetData['images'] != null && (assetData['images'] as List).isNotEmpty) 
-              ? assetData['images'][0] 
+          'reporter_name': assetData['reporter_name'],
+          'issue_detail': assetData['issue_detail'],
+          'image_url':
+              (assetData['images'] != null &&
+                  (assetData['images'] as List).isNotEmpty)
+              ? assetData['images'][0]
               : (assetData['image_url'] ?? ''), // Fallback
         }),
       );
 
       debugPrint('📡 Update Status: ${response.statusCode}');
-      
+
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'แก้ไขสำเร็จ'};
       } else if (response.statusCode == 404) {
@@ -181,8 +315,10 @@ class ApiService {
       } else if (response.statusCode == 500) {
         return {'success': false, 'message': 'Server Error (500)'};
       }
-      return {'success': false, 'message': 'แก้ไขไม่สำเร็จ (${response.statusCode})'};
-      
+      return {
+        'success': false,
+        'message': 'แก้ไขไม่สำเร็จ (${response.statusCode})',
+      };
     } catch (e) {
       debugPrint('🚨 Update asset error: $e');
       return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
@@ -232,6 +368,7 @@ class ApiService {
       return [];
     }
   }
+
   // เพิ่มห้องใหม่ (Location)
   // return: { success: bool, location_id: int?, message: String }
   Future<Map<String, dynamic>> addLocation(int floor, String roomName) async {
@@ -251,7 +388,7 @@ class ApiService {
 
       debugPrint('📡 Status Code: ${response.statusCode}');
       debugPrint('📄 Response Body: ${response.body}');
-      
+
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -260,12 +397,15 @@ class ApiService {
         // ถ้าไม่มี id อาจจะต้อง reload อย่างเดียว แต่เราจะพยายามหา
         int? newId = data['location_id'] ?? data['id'] ?? data['insertId'];
         return {
-          'success': true, 
-          'message': 'เพิ่มห้องสำเร็จ', 
-          'location_id': newId 
+          'success': true,
+          'message': 'เพิ่มห้องสำเร็จ',
+          'location_id': newId,
         };
       }
-      return {'success': false, 'message': data['message'] ?? 'เพิ่มห้องไม่สำเร็จ'};
+      return {
+        'success': false,
+        'message': data['message'] ?? 'เพิ่มห้องไม่สำเร็จ',
+      };
     } catch (e) {
       debugPrint('🚨 Add location error: $e');
       return {'success': false, 'message': 'เกิดข้อผิดพลาดในการเชื่อมต่อ'};
@@ -288,7 +428,7 @@ class ApiService {
 
       debugPrint('📡 Status Code: ${response.statusCode}');
       debugPrint('📄 Response Body: ${response.body}');
-      
+
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
@@ -296,9 +436,12 @@ class ApiService {
         return {'success': true, 'message': 'ลบห้องสำเร็จ'};
       } else if (response.statusCode == 400) {
         // กรณีลบไม่ได้เพราะมีครุภัณฑ์
-        return {'success': false, 'message': data['message'] ?? 'ไม่สามารถลบห้องได้'};
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถลบห้องได้',
+        };
       }
-      
+
       debugPrint('❌ ลบห้องไม่สำเร็จ: ${response.body}');
       return {'success': false, 'message': 'เกิดข้อผิดพลาดในการลบห้อง'};
     } catch (e) {
@@ -308,10 +451,14 @@ class ApiService {
   }
 
   // แก้ไขห้อง (Location) - รองรับแก้ชื่อห้อง หรือแก้ชั้น (API Update)
-  Future<Map<String, dynamic>> updateRoomLocation(int locationId, {String? roomName, String? floor}) async {
+  Future<Map<String, dynamic>> updateRoomLocation(
+    int locationId, {
+    String? roomName,
+    String? floor,
+  }) async {
     try {
       debugPrint('🔄 กำลังแก้ไขห้อง ID: $locationId');
-      
+
       Map<String, dynamic> body = {};
       if (roomName != null) body['room_name'] = roomName;
       if (floor != null) body['floor'] = floor;
@@ -327,14 +474,14 @@ class ApiService {
 
       debugPrint('📡 Status Code: ${response.statusCode}');
       debugPrint('📄 Response Body: ${response.body}');
-      
+
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
         debugPrint('✅ แก้ไขสำเร็จ');
         return {'success': true, 'message': 'แก้ไขสำเร็จ'};
       }
-      
+
       debugPrint('❌ แก้ไขไม่สำเร็จ: ${response.body}');
       return {'success': false, 'message': data['message'] ?? 'แก้ไขไม่สำเร็จ'};
     } catch (e) {
@@ -343,13 +490,15 @@ class ApiService {
     }
   }
 
-
-
   // แจ้งปัญหา (Report Problem) -> Auto update status to 'ชำรุด'
-  Future<Map<String, dynamic>> reportProblem(String assetId, String reporterName, String issueDetail) async {
+  Future<Map<String, dynamic>> reportProblem(
+    String assetId,
+    String reporterName,
+    String issueDetail,
+  ) async {
     try {
       debugPrint('🔄 กำลังส่งรายงานแจ้งปัญหา: $assetId');
-      
+
       final response = await http.post(
         Uri.parse('$baseUrl/reports'),
         headers: {
@@ -365,13 +514,16 @@ class ApiService {
 
       debugPrint('📡 Report Status: ${response.statusCode}');
       debugPrint('📄 Response Body: ${response.body}');
-      
+
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {'success': true, 'message': 'แจ้งปัญหาเรียบร้อยแล้ว'};
       }
-      return {'success': false, 'message': data['message'] ?? 'แจ้งปัญหาไม่สำเร็จ'};
+      return {
+        'success': false,
+        'message': data['message'] ?? 'แจ้งปัญหาไม่สำเร็จ',
+      };
     } catch (e) {
       debugPrint('🚨 Report problem error: $e');
       return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
@@ -391,7 +543,7 @@ class ApiService {
       );
 
       debugPrint('📡 Reports Status: ${response.statusCode}');
-      
+
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -399,6 +551,72 @@ class ApiService {
       return [];
     } catch (e) {
       debugPrint('🚨 Get reports error: $e');
+      return [];
+    }
+  }
+
+  // บันทึกการตรวจสอบครุภัณฑ์ (Check Logs)
+  Future<Map<String, dynamic>> createCheckLog({
+    required String assetId,
+    required int checkerId,
+    required String resultStatus,
+    String? remark,
+  }) async {
+    try {
+      debugPrint('🔄 กำลังบันทึกการตรวจสอบ: $assetId');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/check-logs'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: jsonEncode({
+          'asset_id': assetId,
+          'checker_id': checkerId,
+          'result_status': resultStatus,
+          'remark': remark ?? '',
+        }),
+      );
+
+      debugPrint('📡 Check Log Status: ${response.statusCode}');
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'message': 'บันทึกการตรวจสอบเรียบร้อยแล้ว'};
+      }
+      return {
+        'success': false,
+        'message': data['message'] ?? 'บันทึกไม่สำเร็จ',
+      };
+    } catch (e) {
+      debugPrint('🚨 Create check log error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  // ดึงประวัติการตรวจสอบ (Check Logs)
+  Future<List<Map<String, dynamic>>> getCheckLogs(String assetId) async {
+    try {
+      debugPrint('🔄 กำลังเรียก API: $baseUrl/check-logs?asset_id=$assetId');
+      final response = await http.get(
+        Uri.parse('$baseUrl/check-logs?asset_id=$assetId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Check Logs Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('🚨 Get check logs error: $e');
       return [];
     }
   }

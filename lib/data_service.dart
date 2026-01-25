@@ -19,7 +19,7 @@ class DataService {
   // Initialize database
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'equipment_database.db');
-    
+
     return await openDatabase(
       path,
       version: 1,
@@ -100,7 +100,7 @@ class DataService {
     await db.insert('users', {
       'username': 'admin',
       'password': '1234',
-      'name': 'ผู้ดูแลระบบ'
+      'name': 'ผู้ดูแลระบบ',
     });
 
     // เพิ่มห้อง
@@ -131,7 +131,7 @@ class DataService {
     await db.insert('equipment', {
       'id': '1-104-7440-006-0006/014-67',
       'room_name': 'Room 1951',
-      'type': 'PC',
+      'type': 'เคสคอม',
       'status': 'ปกติ',
     });
 
@@ -147,7 +147,7 @@ class DataService {
     await db.insert('equipment', {
       'id': '1-104-7440-006-0007/001-67',
       'room_name': 'Room 1952',
-      'type': 'PC',
+      'type': 'เคสคอม',
       'status': 'ปกติ',
     });
   }
@@ -173,17 +173,23 @@ class DataService {
 
   // ดึงข้อมูลห้องทั้งหมดแยกตามชั้น (แบบ sync สำหรับความเข้ากันได้)
   Map<int, List<String>> floorRooms = {
-    1: [], 2: [], 3: [], 4: [], 5: [], 6: [],
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+    5: [],
+    6: [],
   };
 
   // โหลดข้อมูลห้องจาก database
   Future<void> loadFloorRooms() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('rooms', orderBy: 'floor, name');
+    final List<Map<String, dynamic>> maps = await db.query(
+      'rooms',
+      orderBy: 'floor, name',
+    );
 
-    floorRooms = {
-      1: [], 2: [], 3: [], 4: [], 5: [], 6: [],
-    };
+    floorRooms = {1: [], 2: [], 3: [], 4: [], 5: [], 6: []};
 
     for (var map in maps) {
       int floor = map['floor'] as int;
@@ -197,11 +203,10 @@ class DataService {
   // เพิ่มห้องใหม่
   Future<void> addRoom(int floor, String roomName) async {
     final db = await database;
-    await db.insert(
-      'rooms',
-      {'floor': floor, 'name': roomName},
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await db.insert('rooms', {
+      'floor': floor,
+      'name': roomName,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
     await loadFloorRooms(); // โหลดข้อมูลใหม่
   }
 
@@ -219,9 +224,11 @@ class DataService {
   // ===== EQUIPMENT METHODS =====
 
   // ดึงครุภัณฑ์ทั้งหมดในห้อง
-  Future<List<Map<String, dynamic>>> getEquipmentsInRoomAsync(String roomName) async {
+  Future<List<Map<String, dynamic>>> getEquipmentsInRoomAsync(
+    String roomName,
+  ) async {
     final db = await database;
-    
+
     // ดึงข้อมูลครุภัณฑ์
     final List<Map<String, dynamic>> rawEquipments = await db.query(
       'equipment',
@@ -230,12 +237,14 @@ class DataService {
     );
 
     // แปลง immutable map เป็น mutable map
-    List<Map<String, dynamic>> equipments = rawEquipments.map((e) => Map<String, dynamic>.from(e)).toList();
+    List<Map<String, dynamic>> equipments = rawEquipments
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
 
     // เพิ่มรูปภาพให้แต่ละครุภัณฑ์
     for (var equipment in equipments) {
       String equipmentId = equipment['id'];
-      
+
       // ดึงรูปอุปกรณ์ปกติ
       final images = await db.query(
         'equipment_images',
@@ -243,7 +252,9 @@ class DataService {
         where: 'equipment_id = ?',
         whereArgs: [equipmentId],
       );
-      equipment['images'] = images.map((e) => e['image_path'] as String).toList();
+      equipment['images'] = images
+          .map((e) => e['image_path'] as String)
+          .toList();
 
       // ดึงรูปจากผู้ตรวจ
       final inspectorImages = await db.query(
@@ -252,7 +263,9 @@ class DataService {
         where: 'equipment_id = ?',
         whereArgs: [equipmentId],
       );
-      equipment['inspectorImages'] = inspectorImages.map((e) => e['image_path'] as String).toList();
+      equipment['inspectorImages'] = inspectorImages
+          .map((e) => e['image_path'] as String)
+          .toList();
 
       // ดึงรูปจากผู้แจ้ง
       final reportImages = await db.query(
@@ -261,7 +274,9 @@ class DataService {
         where: 'equipment_id = ?',
         whereArgs: [equipmentId],
       );
-      equipment['reportImages'] = reportImages.map((e) => e['image_path'] as String).toList();
+      equipment['reportImages'] = reportImages
+          .map((e) => e['image_path'] as String)
+          .toList();
     }
 
     return equipments;
@@ -274,23 +289,22 @@ class DataService {
   }
 
   // เพิ่มครุภัณฑ์
-  Future<void> addEquipment(String roomName, Map<String, dynamic> equipment) async {
+  Future<void> addEquipment(
+    String roomName,
+    Map<String, dynamic> equipment,
+  ) async {
     final db = await database;
-    
+
     // เพิ่มข้อมูลครุภัณฑ์
-    await db.insert(
-      'equipment',
-      {
-        'id': equipment['id'],
-        'room_name': roomName,
-        'type': equipment['type'],
-        'status': equipment['status'],
-        'inspector_name': equipment['inspectorName'],
-        'reporter_name': equipment['reporterName'],
-        'report_reason': equipment['reportReason'],
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('equipment', {
+      'id': equipment['id'],
+      'room_name': roomName,
+      'type': equipment['type'],
+      'status': equipment['status'],
+      'inspector_name': equipment['inspectorName'],
+      'reporter_name': equipment['reporterName'],
+      'report_reason': equipment['reportReason'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
 
     String equipmentId = equipment['id'];
 
@@ -326,7 +340,10 @@ class DataService {
   }
 
   // อัปเดตครุภัณฑ์
-  Future<void> updateEquipment(String roomName, Map<String, dynamic> equipment) async {
+  Future<void> updateEquipment(
+    String roomName,
+    Map<String, dynamic> equipment,
+  ) async {
     final db = await database;
     String equipmentId = equipment['id'];
 
@@ -346,7 +363,11 @@ class DataService {
     );
 
     // ลบและเพิ่มรูปอุปกรณ์ปกติใหม่
-    await db.delete('equipment_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
+    await db.delete(
+      'equipment_images',
+      where: 'equipment_id = ?',
+      whereArgs: [equipmentId],
+    );
     if (equipment['images'] != null) {
       for (String imagePath in equipment['images']) {
         await db.insert('equipment_images', {
@@ -357,7 +378,11 @@ class DataService {
     }
 
     // ลบและเพิ่มรูปจากผู้ตรวจใหม่
-    await db.delete('inspector_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
+    await db.delete(
+      'inspector_images',
+      where: 'equipment_id = ?',
+      whereArgs: [equipmentId],
+    );
     if (equipment['inspectorImages'] != null) {
       for (String imagePath in equipment['inspectorImages']) {
         await db.insert('inspector_images', {
@@ -368,7 +393,11 @@ class DataService {
     }
 
     // ลบและเพิ่มรูปจากผู้แจ้งใหม่
-    await db.delete('report_images', where: 'equipment_id = ?', whereArgs: [equipmentId]);
+    await db.delete(
+      'report_images',
+      where: 'equipment_id = ?',
+      whereArgs: [equipmentId],
+    );
     if (equipment['reportImages'] != null) {
       for (String imagePath in equipment['reportImages']) {
         await db.insert('report_images', {
