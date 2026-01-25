@@ -130,7 +130,7 @@ app.get('/api/dashboard-stats', (req, res) => {
             COUNT(*) as total, 
             SUM(CASE WHEN status = 'ปกติ' THEN 1 ELSE 0 END) as normal, 
             SUM(CASE WHEN status = 'ชำรุด' THEN 1 ELSE 0 END) as damaged,
-            (SELECT COUNT(*) FROM users WHERE is_approved = 0) as pending
+            SUM(CASE WHEN status = 'รอตรวจสอบ' THEN 1 ELSE 0 END) as pending
         FROM assets
     `;
     db.query(sql, (err, results) => {
@@ -177,9 +177,13 @@ app.post('/api/assets', (req, res) => {
 
 app.put('/api/assets/:asset_id', (req, res) => {
     const { asset_id } = req.params;
-    const { image_url, brand_model, asset_type } = req.body;
+    const { image_url, brand_model, asset_type, location_id, status } = req.body;
 
+    // 1. ค้นหาข้อมูลเดิมก่อนเพื่อดูว่ามีรูปเก่าต้องลบทิ้งไหม
     db.query("SELECT image_url FROM assets WHERE asset_id = ?", [asset_id], (err, results) => {
+        if (err) return res.status(500).json(err);
+
+        // ถ้ามีรูปเก่าในเครื่อง และรักส่งรูปใหม่มา (image_url) ให้ลบรูปเก่าทิ้ง
         if (results.length > 0 && results[0].image_url && image_url) {
             const oldUrl = results[0].image_url;
             const fileNames = oldUrl.split(',');
@@ -188,16 +192,25 @@ app.put('/api/assets/:asset_id', (req, res) => {
                 const filePath = path.join(__dirname, 'uploads', fileName);
                 if (fs.existsSync(filePath)) {
                     fs.unlink(filePath, (err) => {
-                        if (!err) console.log("✅ Auto-deleted old file:", fileName);
+                        if (!err) console.log("✅ ลบรูปเก่าออกให้แล้ว:", fileName);
                     });
                 }
             });
         }
 
-        const sql = "UPDATE assets SET image_url = COALESCE(?, image_url), brand_model = COALESCE(?, brand_model), asset_type = COALESCE(?, asset_type) WHERE asset_id = ?";
-        db.query(sql, [image_url, brand_model, asset_type, asset_id], (err) => {
-            if (err) return res.status(500).json({ message: "Update Error", error: err });
-            res.json({ success: true, message: "อัปเดตและล้างไฟล์เก่าเรียบร้อย!" });
+        // 2. พอจัดการรูปเสร็จแล้ว ค่อยอัปเดตข้อมูลใหม่ลงไป (ครอบคลุมทุกฟิลด์)
+        const sql = `
+            UPDATE assets 
+            SET image_url = COALESCE(?, image_url), 
+                brand_model = COALESCE(?, brand_model), 
+                asset_type = COALESCE(?, asset_type),
+                location_id = COALESCE(?, location_id),
+                status = COALESCE(?, status)
+            WHERE asset_id = ?
+        `;
+        db.query(sql, [image_url, brand_model, asset_type, location_id, status, asset_id], (errUpdate) => {
+            if (errUpdate) return res.status(500).json(errUpdate);
+            res.json({ success: true, message: "อัปเดตข้อมูลและจัดการไฟล์ภาพเรียบร้อย!" });
         });
     });
 });
