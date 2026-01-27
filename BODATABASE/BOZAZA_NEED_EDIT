@@ -119,9 +119,8 @@ app.put('/api/users/approve/:id', (req, res) => {
     });
 });
 
-// 1. แก้ไขสิทธิ์ผู้ใช้งาน (เช่น เปลี่ยนจาก user เป็น admin)
 app.put('/api/users/role/:id', (req, res) => {
-    const { role } = req.body; // รับค่า 'admin' หรือ 'user'
+    const { role } = req.body;
     const sql = "UPDATE users SET role = ? WHERE user_id = ?";
     db.query(sql, [role, req.params.id], (err) => {
         if (err) return res.status(500).json({ message: "Database error" });
@@ -129,7 +128,6 @@ app.put('/api/users/role/:id', (req, res) => {
     });
 });
 
-// 2. ลบผู้ใช้งานออกจากระบบ
 app.delete('/api/users/:id', (req, res) => {
     const sql = "DELETE FROM users WHERE user_id = ?";
     db.query(sql, [req.params.id], (err) => {
@@ -142,7 +140,6 @@ app.delete('/api/users/:id', (req, res) => {
 // --- 6. API: Assets & Dashboard ---
 // ==========================================
 
-// สถิติหน้า Dashboard
 app.get('/api/dashboard-stats', (req, res) => {
     const sql = `
         SELECT 
@@ -158,7 +155,6 @@ app.get('/api/dashboard-stats', (req, res) => {
     });
 });
 
-// ✅ เพิ่มใหม่: ดึงรายการครุภัณฑ์ทั้งหมด (แก้บั๊ก 404 ในหน้า Asset List)
 app.get('/api/assets', (req, res) => {
     const sql = "SELECT a.*, l.room_name, l.floor FROM assets a JOIN locations l ON a.location_id = l.location_id ORDER BY a.created_at DESC";
     db.query(sql, (err, results) => {
@@ -167,7 +163,6 @@ app.get('/api/assets', (req, res) => {
     });
 });
 
-// ✅ เพิ่มใหม่: ดึงครุภัณฑ์ตามรหัสห้อง (แก้บั๊ก GET /api/assets/room/:id)
 app.get('/api/assets/room/:location_id', (req, res) => {
     const sql = "SELECT a.*, l.room_name, l.floor FROM assets a JOIN locations l ON a.location_id = l.location_id WHERE a.location_id = ?";
     db.query(sql, [req.params.location_id], (err, results) => {
@@ -185,8 +180,15 @@ app.get('/api/assets/:assetId', (req, res) => {
     });
 });
 
+// ✅ แก้ไข: เพิ่มการเช็กค่าว่าง image_url ตามที่รักขอ
 app.post('/api/assets', (req, res) => {
-    const { asset_id, asset_type, brand_model, location_id, image_url, created_by } = req.body;
+    let { asset_id, asset_type, brand_model, location_id, image_url, created_by } = req.body;
+    
+    // ถ้าส่ง "" หรือ "null" มา ให้เซฟเป็น null
+    if (!image_url || image_url === "" || image_url === "null") {
+        image_url = null;
+    }
+
     const sql = "INSERT INTO assets (asset_id, created_by, asset_type, brand_model, location_id, image_url, status) VALUES (?, ?, ?, ?, ?, ?, 'ปกติ')";
     db.query(sql, [asset_id, created_by, asset_type, brand_model, location_id, image_url], (err) => {
         if (err) return res.status(500).json(err);
@@ -196,19 +198,8 @@ app.post('/api/assets', (req, res) => {
 
 app.put('/api/assets/:old_asset_id', (req, res) => {
     const { old_asset_id } = req.params;
-    const { 
-        asset_id, // รหัสใหม่
-        brand_model, 
-        asset_type, 
-        location_id, 
-        status, 
-        image_url, 
-        role // รับ Role จากแอป (admin/user)
-    } = req.body;
+    let { asset_id, brand_model, asset_type, location_id, status, image_url, role } = req.body;
 
-    console.log(`🛠️ กำลังแก้ไขรหัสเดิม: ${old_asset_id} -> รหัสใหม่: ${asset_id}`);
-
-    // ตรวจสอบสิทธิ์: ถ้าจะเปลี่ยน ID แต่ไม่ใช่ admin ให้ปฏิเสธ
     if (asset_id !== old_asset_id && role !== 'admin') {
         return res.status(403).json({ message: "เฉพาะ Admin เท่านั้นที่เปลี่ยนรหัสครุภัณฑ์ได้" });
     }
@@ -217,7 +208,6 @@ app.put('/api/assets/:old_asset_id', (req, res) => {
         if (err) return res.status(500).json(err);
         
         if (results.length > 0) {
-            // --- จัดการรูปภาพเก่า (Auto-Cleanup) ---
             if (image_url && results[0].image_url && image_url !== results[0].image_url) {
                 const oldUrl = results[0].image_url;
                 const fileNames = oldUrl.split(',');
@@ -232,7 +222,6 @@ app.put('/api/assets/:old_asset_id', (req, res) => {
                 });
             }
 
-            // --- อัปเดตข้อมูล (รวมถึง asset_id ถ้าเป็น Admin) ---
             const sql = `
                 UPDATE assets 
                 SET asset_id = ?, 
@@ -268,7 +257,6 @@ app.delete('/api/assets/:assetId', (req, res) => {
                 if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             });
         }
-        // ลบข้อมูลแบบลูกโซ่: ประวัติซ่อม -> ประวัติการตรวจ -> ข้อมูลเครื่อง
         db.query("DELETE FROM reports WHERE asset_id = ?", [assetId], (err) => {
             db.query("DELETE FROM check_logs WHERE asset_id = ?", [assetId], (err2) => {
                 db.query("DELETE FROM assets WHERE asset_id = ?", [assetId], (err3) => {
@@ -306,15 +294,11 @@ app.post('/api/reports', (req, res) => {
     });
 });
 
-// API สำหรับดึงประวัติการแจ้งซ่อมของครุภัณฑ์รายเครื่อง (เพื่อให้รักดึงรูป B ไปโชว์ได้)
 app.get('/api/assets/:assetId/reports', (req, res) => {
     const sql = "SELECT * FROM reports WHERE asset_id = ? ORDER BY report_date DESC";
     db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) {
-            console.error("❌ SQL Report Fetch Error:", err);
-            return res.status(500).json(err);
-        }
-        res.json(results); // ส่งรายการแจ้งซ่อมทั้งหมดที่มี image_url (รูป B) กลับไปให้รัก
+        if (err) return res.status(500).json(err);
+        res.json(results);
     });
 });
 
@@ -337,24 +321,16 @@ app.post('/api/locations', (req, res) => {
     });
 });
 
-// 3. ลบสถานที่ (ห้อง)
+// ✅ เพิ่ม: ลบห้อง
 app.delete('/api/locations/:id', (req, res) => {
     const locationId = req.params.id;
-
-    // เช็กก่อนว่ามีครุภัณฑ์ตัวไหนใช้ห้องนี้อยู่ไหม (ป้องกัน Data พัง)
     const sqlCheck = "SELECT COUNT(*) as count FROM assets WHERE location_id = ?";
     db.query(sqlCheck, [locationId], (err, results) => {
         if (err) return res.status(500).json(err);
-        
         if (results[0].count > 0) {
-            return res.status(400).json({ 
-                message: "ไม่สามารถลบได้ เนื่องจากมีครุภัณฑ์อยู่ในห้องนี้ " + results[0].count + " ชิ้น" 
-            });
+            return res.status(400).json({ message: "ไม่สามารถลบได้ เนื่องจากมีครุภัณฑ์อยู่ในห้องนี้" });
         }
-
-        // ถ้าไม่มีครุภัณฑ์ค้างอยู่ ถึงจะยอมให้ลบ
-        const sqlDelete = "DELETE FROM locations WHERE location_id = ?";
-        db.query(sqlDelete, [locationId], (err2) => {
+        db.query("DELETE FROM locations WHERE location_id = ?", [locationId], (err2) => {
             if (err2) return res.status(500).json(err2);
             res.json({ success: true, message: "ลบห้องเรียบร้อยแล้ว!" });
         });
@@ -362,42 +338,24 @@ app.delete('/api/locations/:id', (req, res) => {
 });
 
 // ==========================================
-// --- 9. API: Check Logs (บันทึกการตรวจสอบอุปกรณ์) ---
+// --- 9. API: Check Logs ---
 // ==========================================
 
 app.post('/api/check-logs', (req, res) => {
-    // 1. รับ image_url เพิ่มเข้ามาจากฝั่งรัก
     const { asset_id, checker_id, result_status, remark, image_url } = req.body;
-
-    // 2. เพิ่ม image_url ลงในคำสั่ง SQL (ต้องรัน ALTER TABLE ใน DB ก่อนนะโบ!)
     const sqlLog = "INSERT INTO check_logs (asset_id, checker_id, result_status, remark, image_url, check_date) VALUES (?, ?, ?, ?, ?, NOW())";
-    
     const sqlUpdateAsset = "UPDATE assets SET status = ?, checker_name = ?, last_check_date = NOW() WHERE asset_id = ?";
 
-    // 3. ใส่ image_url เข้าไปใน array ตัวที่ 5
     db.query(sqlLog, [asset_id, checker_id, result_status, remark, image_url], (err) => {
-        if (err) {
-            console.error("❌ SQL Log Error:", err);
-            return res.status(500).json({ message: "บันทึกประวัติการตรวจสอบไม่สำเร็จ", error: err });
-        }
-
+        if (err) return res.status(500).json({ message: "บันทึกไม่สำเร็จ", error: err });
         db.query(sqlUpdateAsset, [result_status, checker_id, asset_id], (err2) => {
-            if (err2) {
-                console.error("❌ SQL Update Asset Error:", err2);
-                return res.status(500).json({ message: "อัปเดตสถานะที่ตัวครุภัณฑ์ไม่สำเร็จ", error: err2 });
-            }
-            
-            res.json({ 
-                success: true, 
-                message: "บันทึกการตรวจสอบและอัปเดตสถานะครุภัณฑ์เรียบร้อย!" 
-            });
+            if (err2) return res.status(500).json({ message: "อัปเดตสถานะไม่สำเร็จ" });
+            res.json({ success: true, message: "บันทึกการตรวจสอบเรียบร้อย!" });
         });
     });
 });
 
-// API สำหรับดึงประวัติการตรวจสอบ พร้อมจอยชื่อคนตรวจมาจากตาราง users
 app.get('/api/assets/:assetId/check-logs', (req, res) => {
-    // ใช้ LEFT JOIN เพื่อดึงชื่อ fullname มาจากตาราง users โดยเทียบจาก checker_id
     const sql = `
         SELECT cl.*, u.fullname AS checker_name 
         FROM check_logs cl
@@ -406,11 +364,8 @@ app.get('/api/assets/:assetId/check-logs', (req, res) => {
         ORDER BY cl.check_date DESC
     `;
     db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) {
-            console.error("❌ Fetch Logs Error:", err);
-            return res.status(500).json(err);
-        }
-        res.json(results); // ตอนนี้รักจะได้ checker_name เป็น "โบ ผู้ดูแลระบบ" ไปใช้แล้วครับ!
+        if (err) return res.status(500).json(err);
+        res.json(results);
     });
 });
 
