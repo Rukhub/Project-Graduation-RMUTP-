@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,48 @@ class ApiService {
 
   // เก็บข้อมูลผู้ใช้ที่ล็อกอิน (currentUser)
   Map<String, dynamic>? currentUser;
+
+  // Cache สำหรับเก็บรายชื่อผู้ใช้ทั้งหมด (ID -> Name) เพื่อใช้แสดงผล
+  static final Map<String, String> _allUsersCache = {};
+  
+  /// โหลดรายชื่อผู้ใช้ทั้งหมดมาเก็บใน Cache
+  Future<void> loadAllUsersToCache() async {
+    try {
+      final users = await getAllUsersFromAPI();
+      for (var u in users) {
+        final id = u['user_id']?.toString() ?? u['id']?.toString();
+        final name = u['fullname'] ?? u['username'];
+        if (id != null && name != null) {
+          _allUsersCache[id] = name;
+        }
+      }
+      debugPrint('📦 Cached ${_allUsersCache.length} user names');
+    } catch (e) {
+      debugPrint('🚨 Error caching users: $e');
+    }
+  }
+  
+  // Helper สำหรับแปลง ID เป็นชื่อ
+  String getUserName(dynamic idOrName) {
+    if (idOrName == null) return 'ไม่ระบุ';
+    final String s = idOrName.toString();
+    
+    // ถ้าไม่ใช่ตัวเลข (คือเป็นชื่อมาอยู่แล้ว) ให้คืนค่าเดิม
+    if (int.tryParse(s) == null) return s;
+    
+    // ถ้าเป็น ID ให้เช็คใน Cache
+    if (_allUsersCache.containsKey(s)) {
+      return _allUsersCache[s]!;
+    }
+    
+    // ถ้าเป็นตัวเราเอง
+    final myId = currentUser?['user_id']?.toString() ?? currentUser?['id']?.toString();
+    if (s == myId) {
+      return currentUser?['fullname'] ?? currentUser?['username'] ?? s;
+    }
+    
+    return 'ผู้ตรวจสอบ #$s';
+  }
 
   // Login method - ตรวจสอบ username/password จาก MySQL ผ่าน Node.js API ของโบ
   Future<Map<String, dynamic>?> login(String username, String password) async {
@@ -41,6 +84,10 @@ class ApiService {
         if (data['user'] != null) {
           debugPrint('✅ Login สำเร็จ!');
           currentUser = data['user']; // Store user data globally
+          
+          // โหลดรายชื่อผู้ใช้ทั้งหมดมาเก็บไว้ใน Cache ทันทีที่ Login
+          await loadAllUsersToCache();
+          
           return data['user'];
         }
       }
@@ -87,6 +134,10 @@ class ApiService {
         if (data['user'] != null) {
           debugPrint('✅ Google Login สำเร็จ!');
           currentUser = data['user'];
+          
+          // โหลดรายชื่อผู้ใช้ทั้งหมดมาเก็บไว้ใน Cache ทันทีที่ Login
+          await loadAllUsersToCache();
+          
           return data['user'];
         }
 
@@ -565,12 +616,56 @@ class ApiService {
     }
   }
 
+  // ดึงประวัติการแจ้งซ่อมของครุภัณฑ์รายเครื่อง (Bo's New Endpoint)
+  Future<List<Map<String, dynamic>>> getAssetReports(String assetId) async {
+    try {
+      debugPrint('🔄 กำลังเรียก API: $baseUrl/assets/$assetId/reports');
+      final response = await http.get(
+        Uri.parse('$baseUrl/assets/$assetId/reports'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Asset Reports Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('🚨 Get asset reports error: $e');
+      return [];
+    }
+  }
+
+  // ลบรายงานการแจ้งซ่อม
+  Future<Map<String, dynamic>> deleteReport(int reportId) async {
+    try {
+      debugPrint('🔄 กำลังลบรายงาน ID: $reportId');
+      final response = await http.delete(
+        Uri.parse('$baseUrl/reports/$reportId'),
+        headers: {'ngrok-skip-browser-warning': 'true'},
+      );
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': 'ลบสำเร็จ'};
+      }
+      return {'success': false, 'message': 'ลบไม่สำเร็จ'};
+    } catch (e) {
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
   // บันทึกการตรวจสอบครุภัณฑ์ (Check Logs)
   Future<Map<String, dynamic>> createCheckLog({
     required String assetId,
     required int checkerId, // Bo ขอ checker_id
     required String resultStatus, // Bo ขอ result_status
     String? remark, // Bo ขอ remark
+    String? imageUrl, // Bo เพิ่มมาใหม่: image_url
   }) async {
     try {
       debugPrint('🔄 กำลังบันทึกการตรวจสอบ: $assetId');
@@ -586,6 +681,7 @@ class ApiService {
           'checker_id': checkerId,
           'result_status': resultStatus,
           'remark': remark ?? '',
+          'image_url': imageUrl ?? '', // ส่ง image_url ไปด้วย
         }),
       );
 
@@ -879,7 +975,7 @@ class ApiService {
   /// POST /api/upload
   Future<String?> uploadImage(File imageFile) async {
     try {
-      debugPrint('🔄 กำลังอัปโหลดรูปภาพ: ${imageFile.path}');
+      debugPrint('🔄 กำลังอุปโหลดรูปภาพ: ${imageFile.path}');
 
       // สร้าง multipart request
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
@@ -27,43 +28,37 @@ class EquipmentDetailScreen extends StatefulWidget {
 
 class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   final ImagePicker _picker = ImagePicker();
+
+  // State Variables
   List<String> imagePaths = [];
+  bool isUploadingImage = false;
   String equipmentStatus = 'ปกติ';
-  late String originalStatus;
-
-  // ข้อมูลผู้ตรวจ
+  String originalStatus = 'ปกติ';
+  int? internalId;
   String? inspectorName;
-  List<String> inspectorImages = [];
-
-  // ข้อมูลผู้แจ้ง (เก็บไว้ตัวเดียวพอ)
   String? reporterName;
   String? reportReason;
   List<String> reportImages = [];
 
-  // Internal DB ID
-  int? internalId;
-
-  // Upload state
-  bool isUploadingImage = false;
+  // ประวัติการตรวจสอบ (ใช้สำหรับ Repairing Section)
+  List<Map<String, dynamic>> checkLogs = [];
 
   @override
   void initState() {
     super.initState();
 
     // 1. โหลดรูปภาพ
-    // 1. โหลดรูปภาพ (รองรับทั้ง List และ String แบบ Comma separated)
     if (widget.equipment['images'] != null) {
       if (widget.equipment['images'] is List) {
         imagePaths = List<String>.from(widget.equipment['images']);
       } else if (widget.equipment['images'] is String) {
-        // สูตรโบ: แตก String ด้วย comma
         final imgStr = widget.equipment['images'] as String;
         if (imgStr.isNotEmpty) {
           imagePaths = imgStr.split(',');
         }
       }
     }
-    // Fallback: รองรับ key 'image_url' ด้วย (เผื่อ backend ส่งมา key นี้)
+    // Fallback: รองรับ key 'image_url' ด้วย
     if (imagePaths.isEmpty && widget.equipment['image_url'] != null) {
       final imgUrl = widget.equipment['image_url'].toString();
       if (imgUrl.isNotEmpty) {
@@ -78,16 +73,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     // 3. Set Internal ID
     internalId = widget.equipment['id'];
 
-    // 4. โหลดข้อมูลผู้ตรวจ
+    // 4. โหลดข้อมูลผู้ตรวจ (ไว้แสดงคนล่าสุด)
     inspectorName =
         widget.equipment['inspectorName'] ?? widget.equipment['checker_name'];
-    if (widget.equipment['inspectorImages'] != null) {
-      if (widget.equipment['inspectorImages'] is List) {
-        inspectorImages = List<String>.from(
-          widget.equipment['inspectorImages'],
-        );
-      }
-    }
 
     // 5. โหลดข้อมูลผู้แจ้ง
     reporterName =
@@ -104,21 +92,36 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       }
     }
 
-    // 6. โหลดข้อมูลเพิ่มเติมจาก API ถ้าจำเป็น
-
-    // if (shouldShowReporter) {
-    //   _loadReportData(); // Removed
-    // }
-
-    // 7. โหลดข้อมูลล่าสุดเพื่อให้ได้ ID ที่ถูกต้อง
+    // 6. โหลดข้อมูลล่าสุด
     _loadLatestData();
+
+    // 7. โหลดประวัติการตรวจสอบ
+    _loadCheckLogs();
   }
 
-  // Reload latest asset data (to get updated inspector/status/report)
+  // โหลดประวัติการตรวจสอบ
+  Future<void> _loadCheckLogs() async {
+    final assetId =
+        widget.equipment['asset_id']?.toString() ??
+        widget.equipment['id']?.toString();
+
+    if (assetId == null) return;
+
+    try {
+      final logs = await ApiService().getCheckLogs(assetId);
+      if (mounted) {
+        setState(() {
+          checkLogs = logs;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading check logs: $e');
+    }
+  }
+
+  // Reload latest asset data
   Future<void> _loadLatestData() async {
     try {
-      // We don't have getAssetById, so we fetch assets by location and filter
-      // (Optimization: In real app, should have getAssetById API)
       int locationId =
           int.tryParse(widget.equipment['location_id'].toString()) ?? 0;
       if (locationId == 0) return;
@@ -136,17 +139,47 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       );
 
       if (updatedAsset.isNotEmpty && mounted) {
-        debugPrint('� Updated Asset Data: $updatedAsset');
+        // ⭐ Log EVERYTHING for debugging
+        debugPrint('💎 Full Asset Data: ${jsonEncode(updatedAsset)}');
+        
+        final String currentStatus = updatedAsset['status'] ?? equipmentStatus;
+        List<String> fetchedReportImages = [];
+        
+        // 1. Try to fetch from reports specific to this asset (New efficient endpoint!)
+        final String searchId = widget.equipment['asset_id']?.toString().trim() ?? 
+                               widget.equipment['id']?.toString().trim() ?? "";
+
+        if ((currentStatus == 'ชำรุด' || currentStatus == 'อยู่ระหว่างซ่อม') && searchId.isNotEmpty) {
+          try {
+            debugPrint('🔍 Fetching reports from backend for Asset ID: $searchId');
+            final myReports = await ApiService().getAssetReports(searchId);
+            
+            if (myReports.isNotEmpty) {
+              // Get the latest report
+              final latestReport = myReports.first; // Bo's API usually orders by DESC
+              final rawImageUrl = latestReport['image_url']?.toString();
+              if (rawImageUrl != null && rawImageUrl.trim().isNotEmpty) {
+                fetchedReportImages = rawImageUrl.split(',').where((s) => s.trim().isNotEmpty).toList();
+                debugPrint('✅ Found ${fetchedReportImages.length} images from Asset Reports API');
+              }
+            } else {
+              debugPrint('📊 No reports found for this asset in backend');
+            }
+          } catch (e) {
+            debugPrint('🚨 Asset Reports API error: $e');
+          }
+        }
+
         setState(() {
           // Update Status
-          equipmentStatus = updatedAsset['status'] ?? equipmentStatus;
+          equipmentStatus = currentStatus;
           originalStatus = equipmentStatus;
 
           // Update Inspector
           inspectorName =
               updatedAsset['inspectorName'] ?? updatedAsset['checker_name'];
 
-          // Update Reporter (ดึงจาก Asset โดยตรง แทนที่จะไปดึงจาก Reports API ที่พัง)
+          // Update Reporter
           reporterName =
               updatedAsset['reporterName'] ?? updatedAsset['reporter_name'];
           reportReason =
@@ -154,66 +187,56 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               updatedAsset['report_reason'] ??
               updatedAsset['issue_detail'];
 
-          // Update Report Images (ROBUST PARSING from Asset)
+          // Update Report Images
           reportImages = [];
-
-          // 1. Try 'reportImages' key
-          if (updatedAsset['reportImages'] != null) {
+          
+          // 1. Try getting from asset details (Specific fields)
+          final List<String> possibleKeys = [
+            'report_images', 
+            'report_image', 
+            'report_url',
+            'report_image_url'
+          ];
+          
+          for (var key in possibleKeys) {
+            if (updatedAsset[key] != null) {
+              final val = updatedAsset[key];
+              if (val is List) {
+                reportImages = List<String>.from(val);
+              } else if (val is String && val.isNotEmpty) {
+                reportImages = val.split(',').where((s) => s.trim().isNotEmpty).toList();
+              }
+              if (reportImages.isNotEmpty) break;
+            }
+          }
+          
+          // 2. Use images fetched from either asset.image_url or Reports API
+          if (reportImages.isEmpty && fetchedReportImages.isNotEmpty) {
+            reportImages = fetchedReportImages;
+          }
+          
+          // Fallback: Check old camelCase field
+          if (reportImages.isEmpty && updatedAsset['reportImages'] != null) {
             final val = updatedAsset['reportImages'];
             if (val is List) {
               reportImages = List<String>.from(val);
             } else if (val is String && val.isNotEmpty) {
-              reportImages = val.split(',');
+              reportImages = val.split(',').where((s) => s.trim().isNotEmpty).toList();
             }
           }
 
-          // 2. Try 'image_url' (if status is broken/repairing, image_url might be the report image)
-          if (reportImages.isEmpty &&
-              (equipmentStatus == 'ชำรุด' ||
-                  equipmentStatus == 'อยู่ระหว่างซ่อม') &&
-              updatedAsset['image_url'] != null) {
-            final val = updatedAsset['image_url'];
-            if (val is String && val.isNotEmpty) {
-              reportImages = val.split(',');
-            } else if (val is List) {
-              reportImages = List<String>.from(val);
-            }
-          }
+          // Note: We DO NOT update main ‘imagePaths’ from 'image_url' here anymore
+          // because inspection images are now separate.
+          // Unless it's a manual update which we might want to reflect?
+          // For now, let's keep the main images static or only updated via 'images' field if explicitly set.
 
-          debugPrint('🏁 Final Parsed Report Images: $reportImages');
-
-          // === NEW: อัปเดตรูปภาพหลักของครุภัณฑ์ ===
-          // Update Main Asset Images (imagePaths)
-          List<String> newImagePaths = [];
-          if (updatedAsset['images'] != null) {
-            final val = updatedAsset['images'];
-            if (val is List) {
-              newImagePaths = List<String>.from(val);
-            } else if (val is String && val.isNotEmpty) {
-              newImagePaths = val.split(',');
-            }
-          }
-          // Fallback to 'image_url' if 'images' is empty (for normal status)
-          if (newImagePaths.isEmpty &&
-              equipmentStatus == 'ปกติ' &&
-              updatedAsset['image_url'] != null) {
-            final val = updatedAsset['image_url'];
-            if (val is String && val.isNotEmpty) {
-              newImagePaths = val.split(',');
-            }
-          }
-          // Update state only if we found images
-          if (newImagePaths.isNotEmpty) {
-            imagePaths = newImagePaths;
-            debugPrint('📷 Updated Main Images: $imagePaths');
-          }
-          // === END NEW ===
-
-          // Update internal ID just in case
           if (updatedAsset['id'] != null) {
             internalId = updatedAsset['id'];
           }
         });
+
+        // Reload logs too whenever we refresh asset
+        _loadCheckLogs();
       }
     } catch (e) {
       debugPrint('Error refreshing asset data: $e');
@@ -692,17 +715,28 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             _buildStatusSection(statusColor),
             const SizedBox(height: 20),
 
-            // ข้อมูลผู้ตรวจ (แสดงเมื่อ ปกติ หรือ อยู่ระหว่างซ่อม)
-            if (shouldShowInspector) ...[
+            // 1. ข้อมูลผู้ตรวจ (กรณีปกติ)
+            if (equipmentStatus == 'ปกติ') ...[
               _buildInspectorSection(),
               const SizedBox(height: 20),
             ],
 
-            // ข้อมูลผู้แจ้ง (แสดงเมื่อ ชำรุด หรือ อยู่ระหว่างซ่อม)
-            if (shouldShowReporter) ...[
+            // 2. ข้อมูลการซ่อม (กรณีอยู่ระหว่างซ่อม)
+            if (equipmentStatus == 'อยู่ระหว่างซ่อม') ...[
+              _buildRepairingSection(),
+              const SizedBox(height: 20),
+            ],
+
+            // 3. ข้อมูลผู้แจ้ง (กรณีชำรุด หรือ อยู่ระหว่างซ่อม)
+            if (equipmentStatus == 'ชำรุด' ||
+                equipmentStatus == 'อยู่ระหว่างซ่อม') ...[
               _buildReporterSection(),
               const SizedBox(height: 20),
             ],
+
+            // ประวัติการตรวจสอบ (เอาออกตาม request)
+            // _buildInspectionHistory(),
+            // const SizedBox(height: 20),
 
             // ปุ่มยืนยัน (แสดงเมื่อสถานะเปลี่ยน)
             if (hasStatusChanged) ...[
@@ -1107,12 +1141,259 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         if (result['issue_detail'] != null) {
           reportReason = result['issue_detail']; // Support both keys
         }
+        if (result['reportImages'] != null) {
+          reportImages = List<String>.from(result['reportImages']);
+        }
       });
     }
 
     // Refresh data from API to be sure
     await Future.delayed(const Duration(seconds: 1));
     await _loadLatestData();
+  }
+
+
+  // Section สถานะอยู่ระหว่างซ่อม (Fancy Orange)
+  Widget _buildRepairingSection() {
+    // ดึงข้อมูลจาก log ล่าสุด (ถ้ามี)
+    Map<String, dynamic>? latestLog;
+    if (checkLogs.isNotEmpty) {
+      latestLog = checkLogs.first;
+    }
+
+    String inspector = ApiService().getUserName(
+    latestLog?['checker_name'] ?? inspectorName ?? latestLog?['checker_id']
+  );
+
+    final String remark =
+        latestLog?['remark'] ?? latestLog?['check_detail'] ?? 'ไม่มีรายละเอียด';
+    final String? imageUrl = latestLog?['image_url'];
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.orange.shade100, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withValues(alpha: 0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.build, color: Colors.orange, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'อยู่ระหว่างซ่อม',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  const Text(
+                    'สถานะการดำเนินการ',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // ชื่อผู้ตรวจสอบ
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF8E1), // Soft orange background
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  radius: 18,
+                  child: Icon(
+                    Icons.person,
+                    color: Colors.orange.shade400,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ผู้ตรวจสอบ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade300,
+                      ),
+                    ),
+                    Text(
+                      inspector,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // รายละเอียด (Remark)
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.notes, color: Colors.orange.shade400, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'รายละเอียด / หมายเหตุ',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  remark.isNotEmpty ? remark : 'ไม่มีรายละเอียดระบุ',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade800,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Evidence Images (รูปภาพประกอบ)
+          if (imageUrl != null && imageUrl.isNotEmpty) ...[
+            const SizedBox(height: 15),
+            Text(
+              'หลักฐานภาพถ่าย',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 100,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: imageUrl.split(',').length,
+                itemBuilder: (context, index) {
+                  final imgPath = imageUrl.split(',')[index].trim();
+                  if (imgPath.isEmpty) return const SizedBox.shrink();
+                  final isNetwork = imgPath.startsWith('http');
+
+                  return GestureDetector(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => Dialog(
+                          backgroundColor: Colors.transparent,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              InkWell(
+                                onTap: () => Navigator.pop(context),
+                                child: Container(
+                                  color: Colors.transparent,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                ),
+                              ),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: isNetwork
+                                    ? InteractiveViewer(
+                                        child: Image.network(
+                                          imgPath,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      )
+                                    : InteractiveViewer(
+                                        child: Image.file(
+                                          File(imgPath),
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: 100,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.shade100),
+                        color: Colors.grey.shade100,
+                        image: DecorationImage(
+                          image: isNetwork
+                              ? NetworkImage(imgPath)
+                              : FileImage(File(imgPath)) as ImageProvider,
+                          fit: BoxFit.cover,
+                          onError: (exception, stackTrace) {
+                            debugPrint('🖼️ Image Load Error: $exception');
+                          },
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   // Section ผู้แจ้ง
@@ -1199,17 +1480,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                         color: Colors.red.shade300,
                       ),
                     ),
-                    Text(
-                      reporterName ?? 'ยังไม่มีผู้แจ้ง',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red.shade900,
-                        fontStyle: reporterName != null
-                            ? FontStyle.normal
-                            : FontStyle.italic,
-                      ),
+                  Text(
+                    ApiService().getUserName(reporterName),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade900,
+                      fontStyle: (reporterName != null)
+                          ? FontStyle.normal
+                          : FontStyle.italic,
                     ),
+                  ),
                   ],
                 ),
               ],
@@ -1303,13 +1584,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
                                 child: isNetwork
-                                    ? Image.network(
-                                        imgPath,
-                                        fit: BoxFit.contain,
+                                    ? InteractiveViewer(
+                                        child: Image.network(
+                                          imgPath,
+                                          fit: BoxFit.contain,
+                                        ),
                                       )
-                                    : Image.file(
-                                        File(imgPath),
-                                        fit: BoxFit.contain,
+                                    : InteractiveViewer(
+                                        child: Image.file(
+                                          File(imgPath),
+                                          fit: BoxFit.contain,
+                                        ),
                                       ),
                               ),
                             ],
@@ -1413,7 +1698,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Navigator.pop(context, {
                 'status': equipmentStatus,
                 'inspectorName': inspectorName,
-                'inspectorImages': inspectorImages,
+                // 'inspectorImages': inspectorImages, // Not used
                 'reporterName': reporterName,
                 'reportReason': reportReason,
                 'reportImages': reportImages,

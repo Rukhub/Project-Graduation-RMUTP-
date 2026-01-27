@@ -259,10 +259,15 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
         updateData['reporter_name'] = _nameController.text.trim();
         updateData['issue_detail'] = _reasonController.text.trim();
 
-        // Sync Image if uploaded
+        // ⭐ Bo's instruction: DON'T overwrite asset.image_url with report image.
+        // We sync report details and optionally 'report_images' if Bo added that column.
+        updateData['report_images'] = uploadedImageUrl ?? ''; 
+        
+        /*
         if (uploadedImageUrl != null) {
           updateData['image_url'] = uploadedImageUrl;
         }
+        */
 
         // Ensure type compatibility
         if (updateData['type'] == null && updateData['asset_type'] != null) {
@@ -304,6 +309,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
         'reporterName': _nameController.text.trim(),
         'reportReason': _reasonController.text.trim(),
         'issue_detail': _reasonController.text.trim(),
+        'reportImages': (uploadedImageUrl != null) ? [uploadedImageUrl] : [],
       });
     } else {
       messenger.showSnackBar(

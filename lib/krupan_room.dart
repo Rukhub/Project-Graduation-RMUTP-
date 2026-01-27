@@ -1475,7 +1475,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                                   ApiService().currentUser?['fullname'] ??
                                   'Admin',
                               'image_url': imageUrl,
-                              'images': [],
+                              'images': imageUrl.isNotEmpty ? [imageUrl] : [],
                             };
 
                             final result = await ApiService().addAsset(

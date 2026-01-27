@@ -234,8 +234,25 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
 
     final assetId = (currentEquipment!['asset_id'] ?? currentEquipment!['id'])
         .toString();
+    
+    // --- 1. Upload Image (If any) ---
+    String? finalImageUrl; // Variable to hold uploaded URL
+    
+    if (inspectorImages.isNotEmpty) {
+      try {
+        // Upload the latest image taken
+        File imgFile = File(inspectorImages.last); 
+        finalImageUrl = await ApiService().uploadImage(imgFile);
+        debugPrint('📸 Uploaded Inspection Image: $finalImageUrl');
+      } catch (e) {
+        debugPrint('🚨 Image upload failed: $e');
+        // Decide: Should we fail or continue without image? 
+        // For now, continue but maybe warn? Or just continue.
+      }
+    }
 
-    // Call API
+    // --- 2. Create Check Log ---
+    // Pass the finalImageUrl to the API
     final result = await ApiService().createCheckLog(
       assetId: assetId,
       checkerId: checkerId,
@@ -243,9 +260,10 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
       remark: _remarkController.text.trim().isEmpty
           ? null
           : _remarkController.text.trim(),
+      imageUrl: finalImageUrl, // Send image URL to backend
     );
 
-    // Also update asset status and checker name explicitly to ensure Sync
+    // --- 3. Update Asset (Optional but good for UI consistency) ---
     if (result['success']) {
       try {
         final Map<String, dynamic> updateData = Map.from(currentEquipment!);
@@ -257,17 +275,12 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
           updateData['type'] = updateData['asset_type'];
         }
 
-        // Upload new images if added during inspection
-        if (inspectorImages.isNotEmpty) {
-          // Upload first image as main image (since backend limitation)
-          // In real app, loop upload. Here take first for simplicity/compatibility.
-          File imgFile = File(inspectorImages.last); // Use latest
-          String? uploadedUrl = await ApiService().uploadImage(imgFile);
-          if (uploadedUrl != null) {
-            updateData['image_url'] = uploadedUrl;
-            updateData['images'] = [uploadedUrl];
-          }
-        }
+        // If we have a new image, we DO NOT update the main asset's image_url anymore.
+        // The image is stored in the Check Log history only.
+        // if (finalImageUrl != null) {
+        //   updateData['image_url'] = finalImageUrl;
+        //   updateData['images'] = [finalImageUrl];
+        // }
 
         await ApiService().updateAsset(assetId, updateData);
       } catch (e) {
