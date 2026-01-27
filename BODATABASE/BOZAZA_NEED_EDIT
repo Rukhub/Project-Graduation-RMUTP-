@@ -337,6 +337,30 @@ app.post('/api/locations', (req, res) => {
     });
 });
 
+// 3. ลบสถานที่ (ห้อง)
+app.delete('/api/locations/:id', (req, res) => {
+    const locationId = req.params.id;
+
+    // เช็กก่อนว่ามีครุภัณฑ์ตัวไหนใช้ห้องนี้อยู่ไหม (ป้องกัน Data พัง)
+    const sqlCheck = "SELECT COUNT(*) as count FROM assets WHERE location_id = ?";
+    db.query(sqlCheck, [locationId], (err, results) => {
+        if (err) return res.status(500).json(err);
+        
+        if (results[0].count > 0) {
+            return res.status(400).json({ 
+                message: "ไม่สามารถลบได้ เนื่องจากมีครุภัณฑ์อยู่ในห้องนี้ " + results[0].count + " ชิ้น" 
+            });
+        }
+
+        // ถ้าไม่มีครุภัณฑ์ค้างอยู่ ถึงจะยอมให้ลบ
+        const sqlDelete = "DELETE FROM locations WHERE location_id = ?";
+        db.query(sqlDelete, [locationId], (err2) => {
+            if (err2) return res.status(500).json(err2);
+            res.json({ success: true, message: "ลบห้องเรียบร้อยแล้ว!" });
+        });
+    });
+});
+
 // ==========================================
 // --- 9. API: Check Logs (บันทึกการตรวจสอบอุปกรณ์) ---
 // ==========================================
