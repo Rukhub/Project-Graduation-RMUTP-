@@ -1,135 +1,132 @@
-import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:image_picker/image_picker.dart';
-import 'equipment_detail_screen.dart';
-import 'report_problem_screen.dart';
-import 'inspect_equipment_screen.dart';
 
+import 'package:flutter/material.dart';
+import 'krupan_room.dart'; // import ไฟล์หน้าห้อง
 import 'api_service.dart'; // import api_service
 import 'app_drawer.dart';
 
-class KrupanRoomScreen extends StatefulWidget {
-  final String roomName;
-  final int floor;
-  final int locationId; // รับ locationId เพื่อดึงข้อมูล
-
-  const KrupanRoomScreen({
-    super.key,
-    required this.roomName,
-    required this.floor,
-    required this.locationId,
-  });
+class KrupanScreen extends StatefulWidget {
+  const KrupanScreen({super.key});
 
   @override
-  State<KrupanRoomScreen> createState() => _KrupanRoomScreenState();
+  State<KrupanScreen> createState() => _KrupanScreenState();
 }
 
-class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
-  // เก็บข้อมูลครุภัณฑ์ในห้อง
-  List<Map<String, dynamic>> equipmentList = [];
-  bool isLoading = true; // สถานะโหลดข้อมูล
+class _KrupanScreenState extends State<KrupanScreen> {
+  // เก็บชั้นที่เลือกอยู่
+  int selectedFloor = 1;
+  // ไม่ใช้ DataService แล้วสำหรับการดึงห้อง
+  // final DataService _dataService = DataService();
+
+  // เก็บข้อมูลห้องที่ดึงจาก API: { 1: [{'location_id': 1, 'room_name': 'Room 1'}, ...], ... }
+  Map<int, List<Map<String, dynamic>>> apiFloorRooms = {};
+  bool _isLoading = true;
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  // Filter ที่เลือก
-  String selectedTypeFilter = 'ทั้งหมด';
-  String selectedStatusFilter = 'ทั้งหมด';
+  // === Helper Function: แสดง Notification ด้านล่าง ===
+  void _showBottomNotification({
+    required String message,
+    required IconData icon,
+    required Color color,
+  }) {
+    // ลบ overlay เก่าถ้ามี
+    _removeCurrentOverlay();
 
-  // รายการสถานะ
-  List<Map<String, dynamic>> statusList = [
-    {'name': 'ปกติ', 'color': Color(0xFF99CD60), 'icon': Icons.check_circle},
-    {'name': 'ชำรุด', 'color': Color(0xFFE44F5A), 'icon': Icons.cancel},
-    {
-      'name': 'อยู่ระหว่างซ่อม',
-      'color': Color(0xFFFECC52),
-      'icon': Icons.build_circle,
-    },
-  ];
+    final overlay = Overlay.of(context);
+    late OverlayEntry overlayEntry;
 
-  // รายการประเภทครุภัณฑ์ (Initial) - จะถูกอัปเดตถ้ามีประเภทใหม่จาก DB
-  List<Map<String, dynamic>> equipmentTypes = [
-    {'name': 'หน้าจอ', 'icon': Icons.monitor, 'color': Color(0xFF5593E4)},
-    {'name': 'เคสคอม', 'icon': Icons.storage, 'color': Color(0xFF99CD60)},
-    {'name': 'เมาส์', 'icon': Icons.mouse, 'color': Color(0xFFFECC52)},
-    {'name': 'คีย์บอร์ด', 'icon': Icons.keyboard, 'color': Color(0xFFE44F5A)},
-  ];
+    overlayEntry = OverlayEntry(
+      builder: (context) => _BottomNotificationWidget(
+        message: message,
+        icon: icon,
+        color: color,
+        onDismiss: () {
+          overlayEntry.remove();
+          _currentOverlay = null;
+        },
+      ),
+    );
+
+    _currentOverlay = overlayEntry;
+    overlay.insert(overlayEntry);
+  }
+
+  OverlayEntry? _currentOverlay;
+
+  void _removeCurrentOverlay() {
+    _currentOverlay?.remove();
+    _currentOverlay = null;
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadLocations();
   }
 
-  Future<void> _loadData() async {
-    setState(() => isLoading = true);
+  Future<void> _loadLocations() async {
+    setState(() => _isLoading = true);
+    try {
+      final locations = await ApiService().getLocations();
 
-    // โหลดข้อมูลจาก API โดยใช้ locationId
-    final assets = await ApiService().getAssetsByLocation(widget.locationId);
+      // จัดกลุ่มห้องตามชั้น
+      Map<int, List<Map<String, dynamic>>> tempFloorRooms = {};
 
-    setState(() {
-      equipmentList = assets.map((item) {
-        // Sanitization & Mapping: แปลงข้อมูลจาก API ให้ตรงกับที่แอปใช้
-        final sanitizedItem = Map<String, dynamic>.from(item);
+      for (var loc in locations) {
+        // Parse floor: "ชั้น 1" -> 1
+        String floorStr = loc['floor']?.toString() ?? '';
+        int? floor;
 
-        // 1. ID Converstion
-        sanitizedItem['id'] = item['id']?.toString();
-        sanitizedItem['asset_id'] = item['asset_id']?.toString();
-        sanitizedItem['location_id'] = item['location_id']?.toString();
-
-        // 2. Column Mapping (API -> App)
-        // API ส่ง 'asset_type' -> App ใช้ 'type'
-        if (item.containsKey('asset_type')) {
-          sanitizedItem['type'] = item['asset_type']?.toString();
+        // พยายามดึงตัวเลขจาก string
+        final RegExp digitRegex = RegExp(r'\d+');
+        final match = digitRegex.firstMatch(floorStr);
+        if (match != null) {
+          floor = int.parse(match.group(0)!);
         } else {
-          sanitizedItem['type'] = item['type']?.toString();
+          // Fallback ถ้าไม่ใช่ format "ชั้น X" ให้ลอง cast ตรงๆ หรือข้าม
+          floor = int.tryParse(floorStr);
         }
 
-        // API ส่ง 'checker_name' -> App ใช้ 'inspectorName'
-        if (item.containsKey('checker_name')) {
-          sanitizedItem['inspectorName'] = item['checker_name']?.toString();
+        if (floor != null) {
+          if (!tempFloorRooms.containsKey(floor)) {
+            tempFloorRooms[floor] = [];
+          }
+          // เก็บทั้ง Object เพื่อให้มี location_id ไว้ลบ
+          tempFloorRooms[floor]!.add(loc);
         }
+      }
 
-        // 3. Status Mapping
-        // ถ้า API ส่งสถานะที่ไม่คุ้นเคย มาแปลงให้เข้ากับระบบ
-        String status = item['status']?.toString() ?? 'ปกติ';
-        if (status == 'ตรวจสอบแล้ว') {
-          status = 'ปกติ'; // ถือว่าปกติ
-        } else if (status == 'ไม่ได้ตรวจสอบ') {
-          status = 'ปกติ'; // Default ไปก่อน
+      // เรียงลำดับห้องในแต่ละชั้น (ตามชื่อ)
+      for (var key in tempFloorRooms.keys) {
+        tempFloorRooms[key]!.sort(
+          (a, b) =>
+              (a['room_name'] as String).compareTo(b['room_name'] as String),
+        );
+      }
+
+      setState(() {
+        apiFloorRooms = tempFloorRooms;
+        _isLoading = false;
+
+        // ถ้าชั้นที่เลือกไม่มีในข้อมูลใหม่ ให้เปลี่ยนไปชั้นแรกที่มี
+        if (!apiFloorRooms.containsKey(selectedFloor) &&
+            apiFloorRooms.isNotEmpty) {
+          selectedFloor = apiFloorRooms.keys.reduce(
+            (a, b) => a < b ? a : b,
+          ); // เลือกชั้นต่ำสุด
         }
-        sanitizedItem['status'] = status;
-
-        // 4. Image Handling
-        // API ส่ง 'image_url' (String) -> App ใช้ 'images' (List<String>)
-        if (item['image_url'] != null &&
-            item['image_url'].toString().isNotEmpty) {
-          sanitizedItem['images'] = [item['image_url'].toString()];
-        } else {
-          sanitizedItem['images'] = [];
-        }
-
-        return sanitizedItem;
-      }).toList();
-      isLoading = false;
-    });
+      });
+    } catch (e) {
+      debugPrint('Error loading locations: $e');
+      setState(() => _isLoading = false);
+    }
   }
-
-  // กรองครุภัณฑ์ตาม Filter
-  List<Map<String, dynamic>> get filteredEquipmentList {
-    return equipmentList.where((item) {
-      bool matchType =
-          selectedTypeFilter == 'ทั้งหมด' || item['type'] == selectedTypeFilter;
-      bool matchStatus =
-          selectedStatusFilter == 'ทั้งหมด' ||
-          item['status'] == selectedStatusFilter;
-      return matchType && matchStatus;
-    }).toList();
-  }
-
-  // จำนวนครุภัณฑ์ทั้งหมด
-  int get totalEquipmentCount => equipmentList.length;
 
   @override
   Widget build(BuildContext context) {
+    // ใช้ข้อมูลจาก API (ตอนนี้เป็น List<Map>)
+    List<Map<String, dynamic>> rooms = apiFloorRooms[selectedFloor] ?? [];
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.grey.shade100,
@@ -146,25 +143,29 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               color: Color(0xFF9A2C2C),
             ),
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            Navigator.pop(context);
+          },
         ),
         centerTitle: true,
-        title: Column(
-          children: [
-            Text(
-              widget.roomName,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+        title: GestureDetector(
+          onTap: () => _showFloorPicker(context),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'ชั้น $selectedFloor',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
-            ),
-            Text(
-              'ชั้น ${widget.floor}',
-              style: const TextStyle(fontSize: 14, color: Colors.white70),
-            ),
-          ],
+              const SizedBox(width: 8),
+              const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+            ],
+          ),
         ),
         actions: [
           IconButton(
@@ -177,1712 +178,1200 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         ],
         toolbarHeight: 80,
       ),
-      body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF9A2C2C)),
-            )
+      body: rooms.isEmpty
+          ? _buildEmptyState()
           : ListView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
               children: [
-                // ข้อมูลห้อง
-                _buildInfoCard(
-                  icon: Icons.location_on,
-                  title: 'ชื่อห้อง',
-                  value: widget.roomName,
-                  color: const Color(0xFFD32F2F),
-                ),
-                _buildInfoCard(
-                  icon: Icons.layers,
-                  title: 'ชั้น',
-                  value: 'ชั้น ${widget.floor}',
-                  color: const Color(0xFF9A2C2C),
-                ),
-                _buildInfoCard(
-                  icon: Icons.inventory_2,
-                  title: 'จำนวนครุภัณฑ์',
-                  value: '$totalEquipmentCount ชิ้น',
-                  color: const Color(0xFF5593E4),
-                ),
-                const SizedBox(height: 25),
-
-                // หัวข้อรายการครุภัณฑ์
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'รายการครุภัณฑ์',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF9A2C2C).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${filteredEquipmentList.length} ชิ้น',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF9A2C2C),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 15),
-
-                // Filter ประเภท
-                _buildFilterSection(),
-                const SizedBox(height: 15),
-
-                // แสดงรายการครุภัณฑ์ หรือ Empty State
-                filteredEquipmentList.isEmpty
-                    ? _buildEmptyState()
-                    : Column(
-                        children: filteredEquipmentList
-                            .asMap()
-                            .entries
-                            .map(
-                              (entry) =>
-                                  _buildEquipmentCard(entry.key, entry.value),
-                            )
-                            .toList(),
-                      ),
-                const SizedBox(height: 140),
+                if (_isLoading)
+                  const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF9A2C2C)),
+                  )
+                else ...[
+                  // แสดงรายการห้องของชั้นที่เลือก
+                  ...rooms.map((room) => buildRoomCard(room)),
+                  const SizedBox(height: 80),
+                ],
               ],
             ),
       floatingActionButton: ApiService().currentUser?['role'] == 'admin'
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ปุ่มจัดการประเภทครุภัณฑ์
-                SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: FloatingActionButton(
-                    onPressed: () => _showManageTypesDialog(),
-                    backgroundColor: const Color(0xFF5593E4),
-                    heroTag: 'manage_types',
-                    child: const Icon(
-                      Icons.settings,
-                      size: 28,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // ปุ่มเพิ่มครุภัณฑ์
-                SizedBox(
-                  width: 70,
-                  height: 70,
-                  child: FloatingActionButton(
-                    onPressed: () => _showAddEquipmentDialog(),
-                    backgroundColor: const Color(0xFF9A2C2C),
-                    heroTag: 'add_equipment',
-                    shape: const CircleBorder(),
-                    child: const Icon(Icons.add, size: 40, color: Colors.white),
-                  ),
-                ),
-              ],
+          ? SizedBox(
+              width: 70,
+              height: 70,
+              child: FloatingActionButton(
+                onPressed: () => _showAddRoomDialog(context),
+                backgroundColor: const Color(0xFF9A2C2C),
+                shape: const CircleBorder(),
+                child: const Icon(Icons.add, size: 40, color: Colors.white),
+              ),
             )
           : null,
     );
   }
 
-  // ส่วน Filter (Dropdown)
-  Widget _buildFilterSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+  // ฟังก์ชันแสดง Dropdown เลือกชั้น
+  void _showFloorPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
-      child: Row(
-        children: [
-          // Dropdown ประเภท
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'ประเภท',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: DropdownButton<String>(
-                    value: selectedTypeFilter,
-                    isExpanded: true,
-                    underline: const SizedBox(),
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Color(0xFF9A2C2C),
-                    ),
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'ทั้งหมด',
-                        child: Text('ทั้งหมด'),
-                      ),
-                      ...equipmentTypes.map(
-                        (type) => DropdownMenuItem(
-                          value: type['name'] as String,
-                          child: Row(
-                            children: [
-                              Icon(
-                                type['icon'] as IconData,
-                                size: 18,
-                                color: type['color'] as Color,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(type['name'] as String),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() => selectedTypeFilter = value!);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Dropdown สถานะ
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'สถานะ',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: DropdownButton<String>(
-                    value: selectedStatusFilter,
-                    isExpanded: true,
-                    underline: const SizedBox(),
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Color(0xFF9A2C2C),
-                    ),
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'ทั้งหมด',
-                        child: Text('ทั้งหมด'),
-                      ),
-                      ...statusList.map(
-                        (status) => DropdownMenuItem(
-                          value: status['name'] as String,
-                          child: Row(
-                            children: [
-                              Icon(
-                                status['icon'] as IconData,
-                                size: 18,
-                                color: status['color'] as Color,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(status['name'] as String),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() => selectedStatusFilter = value!);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            List<int> sortedFloors = apiFloorRooms.keys.toList()..sort();
+            bool isAdmin = ApiService().currentUser?['role'] == 'admin';
 
-  // Card ข้อมูลห้อง
-  Widget _buildInfoCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color color,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 15),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color.withValues(alpha: 0.2)),
-            ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Card ครุภัณฑ์แต่ละรายการ
-  Widget _buildEquipmentCard(int index, Map<String, dynamic> equipment) {
-    // หา icon และ color จากประเภทที่เลือก
-    var typeData = equipmentTypes.firstWhere(
-      (type) => type['name'] == equipment['type'],
-      orElse: () => {
-        'name': 'อื่นๆ',
-        'icon': Icons.devices_other,
-        'color': Colors.grey,
-      },
-    );
-
-    IconData equipmentIcon = typeData['icon'] as IconData;
-    Color equipmentColor = typeData['color'] as Color;
-
-    // หา status color
-    var statusData = statusList.firstWhere(
-      (status) => status['name'] == equipment['status'],
-      orElse: () => {
-        'name': 'ปกติ',
-        'color': Color(0xFF99CD60),
-        'icon': Icons.check_circle,
-      },
-    );
-    Color statusColor = statusData['color'] as Color;
-    IconData statusIcon = statusData['icon'] as IconData;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: InkWell(
-        onTap: () async {
-          final result = await Navigator.push<Map<String, dynamic>>(
-            context,
-            MaterialPageRoute(
-              builder: (context) => EquipmentDetailScreen(
-                equipment: equipment,
-                roomName: widget.roomName,
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.6,
               ),
-            ),
-          );
-          if (result != null) {
-            _updateLocalItem(equipment['id']?.toString() ?? '', result);
-            await _loadData(); // Ensure full sync with API
-          }
-        },
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-          child: Row(
-            children: [
-              // Icon
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: equipmentColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(equipmentIcon, color: equipmentColor, size: 24),
-              ),
-              const SizedBox(width: 12),
-
-              // Content (Title + Subtitle)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      (equipment['asset_id'] ??
-                              equipment['id'] ??
-                              'ไม่ระบุรหัส')
-                          .toString(),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle bar
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const SizedBox(height: 6),
-                    Row(
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
                       children: [
-                        Icon(
-                          Icons.category,
-                          size: 14,
-                          color: Colors.grey.shade500,
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          // Ensure text doesn't overflow here too
-                          child: Text(
-                            (equipment['type'] ?? '-').toString(),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade600,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF9A2C2C,
+                            ).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                          child: const Icon(
+                            Icons.layers,
+                            color: Color(0xFF9A2C2C),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'เลือกชั้น',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            // Show management hint only for admins
+                            if (isAdmin)
+                              const Text(
+                                'เลือก เพิ่ม หรือลบชั้น',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Container(
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Divider
+                  Divider(color: Colors.grey.shade200, height: 1),
+
+                  // Floor List
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 16,
+                        vertical: 12,
                       ),
+                      itemCount: sortedFloors.length,
+                      itemBuilder: (context, index) {
+                        int floor = sortedFloors[index];
+                        int roomCount = apiFloorRooms[floor]?.length ?? 0;
+                        bool isSelected = selectedFloor == floor;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(
+                                    0xFF9A2C2C,
+                                  ).withValues(alpha: 0.08)
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(
+                                      0xFF9A2C2C,
+                                    ).withValues(alpha: 0.3)
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () {
+                                setState(() {
+                                  selectedFloor = floor;
+                                });
+                                Navigator.pop(context);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    // Floor Icon
+                                    Container(
+                                      width: 50,
+                                      height: 50,
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? const Color(0xFF9A2C2C)
+                                            : Colors.grey.shade200,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '$floor',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+
+                                    // Floor Info
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'ชั้น $floor',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSelected
+                                                  ? const Color(0xFF9A2C2C)
+                                                  : Colors.black87,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.meeting_room_outlined,
+                                                size: 14,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                roomCount > 0
+                                                    ? '$roomCount ห้อง'
+                                                    : 'ยังไม่มีห้อง',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: roomCount > 0
+                                                      ? Colors.grey.shade600
+                                                      : Colors.orange,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Selected Check
+                                    if (isSelected && !isAdmin)
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF9A2C2C),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+
+                                    // Edit & Delete Button (Only Admin)
+                                    if (!isSelected && isAdmin)
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Edit
+                                          IconButton(
+                                            onPressed: () =>
+                                                _showEditFloorDialog(
+                                                  context,
+                                                  floor,
+                                                  setModalState,
+                                                ),
+                                            icon: Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.blue.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              child: Icon(
+                                                Icons.edit,
+                                                color: Colors.blue.shade400,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          ),
+                                          // Delete
+                                          IconButton(
+                                            onPressed: () => _handleDeleteFloor(
+                                              context,
+                                              floor,
+                                              setModalState,
+                                            ),
+                                            icon: Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red.withValues(
+                                                  alpha: 0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              child: Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.red.shade400,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Add Floor Button (Only Admin)
+                  if (isAdmin)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showAddFloorDialog(context);
+                          },
+                          icon: const Icon(Icons.add_circle_outline, size: 24),
+                          label: const Text(
+                            'เพิ่มชั้นใหม่',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF9A2C2C),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Safe area padding
+                  SizedBox(height: MediaQuery.of(context).padding.bottom),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // === Handle Edit Floor ===
+  void _showEditFloorDialog(
+    BuildContext modalContext,
+    int oldFloor,
+    StateSetter setModalState,
+  ) {
+    final TextEditingController floorController = TextEditingController(
+      text: oldFloor.toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('แก้ไขเลขชั้น'),
+          content: TextField(
+            controller: floorController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              hintText: 'เลขชั้น (เช่น 5)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.layers),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                String input = floorController.text.trim();
+                if (input.isNotEmpty) {
+                  int? newFloor = int.tryParse(input);
+                  if (newFloor != null && newFloor != oldFloor) {
+                    // Check if new floor already exists (Optional: Merge?)
+                    if (apiFloorRooms.containsKey(newFloor)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'มีชั้น $newFloor อยู่แล้ว ไม่สามารถเปลี่ยนเป็นชั้นซ้ำกันได้',
+                          ),
+                        ),
+                      );
+                    } else {
+                      // เริ่มกระบวนการย้ายชั้น
+                      // ต้อง update ทุกห้องในชั้น oldFloor ให้เป็น newFloor
+                      // เนื่องจากไม่มี API updateMany จึงต้องวนลูป
+                      Navigator.pop(context); // ปิด Dialog
+                      Navigator.pop(modalContext); // ปิด Picker เพื่อ Refresh
+
+                      setState(() => _isLoading = true);
+
+                      List<Map<String, dynamic>> roomsToMove =
+                          apiFloorRooms[oldFloor] ?? [];
+                      bool allSuccess = true;
+
+                      for (var room in roomsToMove) {
+                        int locationId = int.parse(
+                          room['location_id'].toString(),
+                        );
+                        String currentRoomName =
+                            room['room_name']; // ดึงชื่อห้องเดิม
+
+                        // Update floor (ส่งทั้ง floor และ room_name ตามที่ API บังคับ)
+                        final res = await ApiService().updateRoomLocation(
+                          locationId,
+                          floor: 'ชั้น $newFloor',
+                          roomName: currentRoomName,
+                        );
+
+                        if (res['success'] != true) {
+                          allSuccess = false;
+                        }
+                      }
+
+                      if (allSuccess) {
+                        _showBottomNotification(
+                          message:
+                              'เปลี่ยนจากชั้น $oldFloor เป็น $newFloor สำเร็จ',
+                          icon: Icons.check_circle,
+                          color: Colors.green,
+                        );
+                      } else {
+                        _showBottomNotification(
+                          message: 'บางห้องอัปเดตไม่สำเร็จ กรุณาลองใหม่',
+                          icon: Icons.warning,
+                          color: Colors.orange,
+                        );
+                      }
+
+                      // Reload Data
+                      _loadLocations();
+                    }
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              child: const Text(
+                'บันทึก',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // === Handle Delete Floor (จาก UI) ===
+  void _handleDeleteFloor(
+    BuildContext modalContext,
+    int floor,
+    StateSetter setModalState,
+  ) async {
+    // ถ้าเป็นชั้นสุดท้าย ห้ามลบ
+    if (apiFloorRooms.keys.length == 1) {
+      _showBottomNotification(
+        message: 'ไม่สามารถลบชั้นสุดท้ายได้',
+        icon: Icons.error_outline,
+        color: Colors.red,
+      );
+      return;
+    }
+
+    // ตรวจสอบว่าชั้นนี้มีห้องหรือไม่
+    if (apiFloorRooms[floor]?.isNotEmpty == true) {
+      // ถ้ามีห้อง ต้องใส่รหัสผ่านก่อนลบ
+      Navigator.pop(modalContext); // ปิด Floor Picker ก่อน
+      final result = await _showPasswordConfirmDialog(floor);
+      if (result) {
+        _deleteFloor(floor);
+      }
+    } else {
+      // ถ้าไม่มีห้อง แสดง Confirmation Dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.orange,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('ยืนยันการลบชั้น'),
+            ],
+          ),
+          content: Text('คุณต้องการลบ "ชั้น $floor" ใช่หรือไม่?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        // ลบและ update modal
+        setModalState(() {
+          apiFloorRooms.remove(floor);
+        });
+        setState(() {}); // Update main screen
+        _showBottomNotification(
+          message: 'ลบชั้น $floor สำเร็จ',
+          icon: Icons.delete_sweep,
+          color: Colors.red,
+        );
+      }
+    }
+  }
+
+  // Dialog เพิ่มชั้นใหม่
+  void _showAddFloorDialog(BuildContext context) {
+    final TextEditingController floorController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('เพิ่มชั้นใหม่'),
+          content: TextField(
+            controller: floorController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              hintText: 'เลขชั้น (เช่น 5)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.layers),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                String input = floorController.text.trim();
+                if (input.isNotEmpty) {
+                  int? newFloor = int.tryParse(input);
+                  if (newFloor != null) {
+                    if (apiFloorRooms.containsKey(newFloor)) {
+                      // ถ้ามีชั้นนี้อยู่แล้ว ให้แจ้งเตือน หรือแค่ย้ายไปชั้นนั้น
+                      setState(() {
+                        selectedFloor = newFloor;
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'มีชั้น $newFloor อยู่แล้ว ย้ายไปยังชั้น $newFloor',
+                          ),
+                        ),
+                      );
+                    } else {
+                      // สร้างชั้นใหม่ (Empty)
+                      setState(() {
+                        apiFloorRooms[newFloor] = []; // สร้าง List ว่าง
+                        selectedFloor = newFloor; // ย้ายไปชั้นใหม่ทันที
+
+                        // Re-sort keys logic if needed, but Map keys aren't ordered automatically in Dart Map literal unless LinkedHashMap (default).
+                        // But when we build ListView, we sort keys every time: `sortedFloors = apiFloorRooms.keys.toList()..sort();`
+                        // So just adding it is fine.
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'สร้างชั้น $newFloor สำเร็จ! กรุณาเพิ่มห้องเพื่อบันทึก',
+                          ),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('กรุณากรอกตัวเลขเท่านั้น')),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9A2C2C),
+              ),
+              child: const Text('สร้าง', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ฟังก์ชันแสดง Dialog เพิ่มห้อง
+  void _showAddRoomDialog(BuildContext context) {
+    final TextEditingController roomController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('เพิ่มห้องใหม่'),
+          content: TextField(
+            controller: roomController,
+            decoration: const InputDecoration(
+              hintText: 'ชื่อห้อง (Ex. Room 1001)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (roomController.text.isNotEmpty) {
+                  // เรียก API เพิ่มห้อง
+                  final result = await ApiService().addLocation(
+                    selectedFloor,
+                    roomController.text,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(context); // ปิด Dialog
+
+                    if (result['success']) {
+                      // แสดง Notification ด้านล่าง (สีเขียว)
+                      _showBottomNotification(
+                        message: 'เพิ่มห้อง "${roomController.text}" สำเร็จ',
+                        icon: Icons.check_circle,
+                        color: Colors.green,
+                      );
+
+                      // Optimistic Update: เพิ่มห้องเข้า List ทันที
+                      setState(() {
+                        if (!apiFloorRooms.containsKey(selectedFloor)) {
+                          apiFloorRooms[selectedFloor] = [];
+                        }
+
+                        // สร้าง Object ห้องใหม่
+                        // ถ้า Server ส่ง ID กลับมาให้ใช้ ID นั้น ถ้าไม่มีให้ใช้ 0 ไปก่อน (แต่มันจะลบไม่ได้ใน session นี้)
+                        int newId = result['location_id'] ?? 0;
+
+                        apiFloorRooms[selectedFloor]!.add({
+                          'location_id': newId,
+                          'room_name': roomController.text,
+                          'floor': 'ชั้น $selectedFloor',
+                        });
+
+                        // จัดเรียง
+                        apiFloorRooms[selectedFloor]!.sort(
+                          (a, b) => (a['room_name'] as String).compareTo(
+                            b['room_name'] as String,
+                          ),
+                        );
+                      });
+
+                      // โหลดข้อมูลจริงตามมา (เผื่อ ID ผิดหรือต้องการข้อมูลอื่นเพิ่ม)
+                      // กรณีนี้ไม่ต้อง Loading Screen ก็ได้เพื่อให้ดู Realtime
+                      // _loadLocations(); // ถ้าอยากชัวร์ก็เปิดหรืือทำแบบ silent update
+                    } else {
+                      // แสดง Notification ด้านล่าง (สีแดง - Error)
+                      _showBottomNotification(
+                        message: result['message'] ?? 'เกิดข้อผิดพลาด',
+                        icon: Icons.error_outline,
+                        color: Colors.red,
+                      );
+                    }
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9A2C2C),
+              ),
+              child: const Text('เพิ่ม', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Dialog แก้ไขห้อง
+  void _showEditRoomDialog(Map<String, dynamic> room) {
+    final TextEditingController roomController = TextEditingController(
+      text: room['room_name'],
+    );
+    int locationId = int.parse(room['location_id'].toString());
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('แก้ไขชื่อห้อง'),
+          content: TextField(
+            controller: roomController,
+            decoration: const InputDecoration(
+              hintText: 'ชื่อห้อง (Ex. Room 1001)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                String newName = roomController.text.trim();
+                if (newName.isNotEmpty && newName != room['room_name']) {
+                  // เรียก API แก้ไข (ต้องส่งทั้งชั้นและชื่อห้อง ตามที่ Server บังคับ)
+                  final result = await ApiService().updateRoomLocation(
+                    locationId,
+                    roomName: newName,
+                    floor: 'ชั้น $selectedFloor', // ส่งชั้นปัจจุบันไปด้วย
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    if (result['success']) {
+                      _showBottomNotification(
+                        message: 'แก้ไขชื่อห้องเป็น "$newName" สำเร็จ',
+                        icon: Icons.check_circle,
+                        color: Colors.green,
+                      );
+                      setState(() {
+                        // Update UI
+                        final index = apiFloorRooms[selectedFloor]?.indexWhere(
+                          (element) =>
+                              element['location_id'].toString() ==
+                              locationId.toString(),
+                        );
+                        if (index != null && index != -1) {
+                          apiFloorRooms[selectedFloor]![index]['room_name'] =
+                              newName;
+                          // Re-sort
+                          apiFloorRooms[selectedFloor]!.sort(
+                            (a, b) => (a['room_name'] as String).compareTo(
+                              b['room_name'] as String,
+                            ),
+                          );
+                        }
+                      });
+                    } else {
+                      _showBottomNotification(
+                        message: result['message'] ?? 'แก้ไขไม่สำเร็จ',
+                        icon: Icons.error_outline,
+                        color: Colors.red,
+                      );
+                    }
+                  }
+                } else {
+                  Navigator.pop(context);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9A2C2C),
+              ),
+              child: const Text(
+                'บันทึก',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Widget แสดงเมื่อไม่มีห้อง
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.meeting_room_outlined,
+            size: 100,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'ยังไม่มีห้องในชั้นนี้',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'กดปุ่ม + เพื่อเพิ่มห้องใหม่',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade400),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget การ์ดห้อง
+  Widget buildRoomCard(Map<String, dynamic> room) {
+    String roomName = room['room_name'] ?? 'Unknown';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            // ส่ง object ห้องไปที่หน้า krupan_room ก็ได้ถ้าต้องการ แต่ตอนนี้เขารับ roomName
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => KrupanRoomScreen(
+                  roomName: roomName,
+                  floor: selectedFloor,
+                  locationId: int.parse(room['location_id'].toString()),
+                ),
+              ),
+            );
+          },
+          onLongPress: ApiService().currentUser?['role'] == 'admin'
+              ? () => _showDeleteRoomDialog(room)
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: const Icon(
+                    Icons.meeting_room,
+                    color: Color(0xFF9A2C2C),
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        roomName,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3142),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ชั้น $selectedFloor',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Admin Actions (Edit/Delete)
+                if (ApiService().currentUser?['role'] == 'admin') ...[
+                  IconButton(
+                    icon: Icon(
+                      Icons.edit,
+                      color: Colors.blue.shade300,
+                      size: 24,
+                    ),
+                    tooltip: 'แก้ไขห้อง',
+                    onPressed: () => _showEditRoomDialog(room),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.delete_outline,
+                      color: Colors.red.shade300,
+                      size: 24,
+                    ),
+                    tooltip: 'ลบห้อง',
+                    onPressed: () => _showDeleteRoomDialog(room),
+                  ),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Dialog ยืนยันลบห้อง
+  void _showDeleteRoomDialog(Map<String, dynamic> room) {
+    String roomName = room['room_name'];
+    int locationId = int.parse(room['location_id'].toString());
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text(
+                'ยืนยันการลบห้อง',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Text(
+            'คุณต้องการลบห้อง "$roomName" ใช่หรือไม่?',
+            style: const TextStyle(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'ยกเลิก',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                // เรียก API ลบห้อง
+                final result = await ApiService().deleteLocation(locationId);
+
+                if (context.mounted) {
+                  Navigator.pop(context); // ปิด Dialog
+
+                  if (result['success'] == true) {
+                    // แสดง Notification ด้านล่าง (สีแดง)
+                    _showBottomNotification(
+                      message: 'ลบห้อง "$roomName" สำเร็จ',
+                      icon: Icons.delete_sweep,
+                      color: Colors.red,
+                    );
+
+                    // ลบออกจาก List
+                    setState(() {
+                      apiFloorRooms[selectedFloor]?.removeWhere(
+                        (r) =>
+                            r['location_id'].toString() ==
+                            locationId.toString(),
+                      );
+                    });
+                  } else {
+                    // แสดง Notification ด้านล่าง (สีแดง - Error)
+                    _showBottomNotification(
+                      message: result['message'] ?? 'ไม่สามารถลบห้องได้',
+                      icon: Icons.error_outline,
+                      color: Colors.red,
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'ลบ',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // === Dialog ใส่รหัสผ่านก่อนลบชั้นที่มีห้อง ===
+  Future<bool> _showPasswordConfirmDialog(int floor) async {
+    final TextEditingController passwordController = TextEditingController();
+    String? errorMessage;
+    bool isDeleting = false;
+
+    final rooms = apiFloorRooms[floor] ?? [];
+    final roomNames = rooms.map((r) => r['room_name'] as String).toList();
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'ลบชั้นและห้องทั้งหมด',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // คำเตือน
+                    Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.orange.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(statusIcon, size: 12, color: statusColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            (equipment['status'] ?? 'ปกติ').toString(),
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: statusColor,
+                          const Icon(
+                            Icons.info_outline,
+                            color: Colors.orange,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'ชั้น $floor มี ${rooms.length} ห้อง จะถูกลบทั้งหมด!',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
+                    const SizedBox(height: 12),
 
-              // Actions (Compact)
-              // Actions
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Admin View: Full Controls
-                  if (ApiService().currentUser?['role'] == 'admin') ...[
-                    _buildCompactAssetButton(
-                      icon: Icons.report_problem_outlined,
-                      color: Colors.orange.shade700,
-                      tooltip: 'แจ้งปัญหา',
-                      onPressed: () => _navigateToReport(index, equipment),
-                    ),
-                    _buildCompactAssetButton(
-                      icon: Icons.verified_outlined,
-                      color: Colors.green,
-                      tooltip: 'ตรวจสอบ',
-                      onPressed: () => _navigateToInspect(index, equipment),
-                    ),
-                    _buildCompactAssetButton(
-                      icon: Icons.edit_outlined,
-                      color: const Color(0xFF5593E4),
-                      tooltip: 'แก้ไข',
-                      onPressed: () =>
-                          _showEditEquipmentDialog(index, equipment),
-                    ),
-                    _buildCompactAssetButton(
-                      icon: Icons.delete_outline,
-                      color: Colors.redAccent,
-                      tooltip: 'ลบ',
-                      onPressed: () => _showDeleteConfirmation(
-                        index,
-                        (equipment['asset_id'] ?? equipment['id']).toString(),
-                      ),
-                    ),
-                  ]
-                  // User View: Simple Report Button
-                  else
-                    TextButton.icon(
-                      onPressed: () => _navigateToReport(index, equipment),
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.orange.shade50,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                      icon: Icon(
-                        Icons.report_problem,
-                        size: 18,
-                        color: Colors.orange.shade800,
-                      ),
-                      label: Text(
-                        'แจ้งปัญหา',
-                        style: TextStyle(
-                          color: Colors.orange.shade800,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompactAssetButton({
-    required IconData icon,
-    required Color color,
-    required String tooltip,
-    required VoidCallback onPressed,
-  }) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon, color: color, size: 20),
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.all(4), // Reduce Padding
-      constraints: const BoxConstraints(
-        minWidth: 32,
-        minHeight: 32,
-      ), // Reduce Hit Area constraints visually
-      onPressed: onPressed,
-    );
-  }
-
-  // Update logic for Report/Inspect
-  Future<void> _navigateToReport(
-    int index,
-    Map<String, dynamic> equipment,
-  ) async {
-    final result = await Navigator.push<Map<String, dynamic>>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ReportProblemScreen(
-          equipment: equipment,
-          roomName: widget.roomName,
-        ),
-      ),
-    );
-    if (result != null) {
-      _updateLocalItem(equipment['id'].toString(), result);
-      await _loadData(); // Refresh list
-    }
-  }
-
-  Future<void> _navigateToInspect(
-    int index,
-    Map<String, dynamic> equipment,
-  ) async {
-    final result = await Navigator.push<Map<String, dynamic>>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => InspectEquipmentScreen(
-          equipment: equipment,
-          roomName: widget.roomName,
-        ),
-      ),
-    );
-    if (result != null) {
-      _updateLocalItem(equipment['id'].toString(), result);
-      await _loadData(); // Refresh list
-    }
-  }
-
-  void _updateLocalItem(String id, Map<String, dynamic> changes) {
-    setState(() {
-      int idx = equipmentList.indexWhere((e) => e['id'].toString() == id);
-      if (idx != -1) {
-        // Map keys to match local format
-        if (changes.containsKey('checkerName')) {
-          changes['inspectorName'] = changes['checkerName'];
-        }
-        if (changes.containsKey('reporterName')) {
-          changes['reporterName'] = changes['reporterName']; // Confirm key
-        }
-
-        equipmentList[idx].addAll(changes);
-      }
-    });
-  }
-
-  // Dialog จัดการประเภทครุภัณฑ์
-  void _showManageTypesDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.settings, color: Color(0xFF5593E4), size: 28),
-                  SizedBox(width: 10),
-                  Text(
-                    'จัดการประเภทครุภัณฑ์',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: equipmentTypes.length,
-                        itemBuilder: (context, index) {
-                          final type = equipmentTypes[index];
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListTile(
-                              leading: Icon(
-                                type['icon'] as IconData,
-                                color: type['color'] as Color,
-                              ),
-                              title: Text(type['name'] as String),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    equipmentTypes.removeAt(index);
-                                  });
-                                  setState(() {});
-                                },
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _showAddTypeDialog();
-                      },
-                      icon: const Icon(Icons.add, color: Colors.white),
-                      label: const Text(
-                        'เพิ่มประเภทใหม่',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF5593E4),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'ปิด',
-                    style: TextStyle(color: Color(0xFF5593E4), fontSize: 16),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // Dialog เพิ่มประเภทครุภัณฑ์ใหม่
-  void _showAddTypeDialog() {
-    final TextEditingController typeNameController = TextEditingController();
-    IconData selectedIcon = Icons.devices_other;
-    Color selectedColor = const Color(0xFF9A2C2C);
-
-    final List<IconData> availableIcons = [
-      Icons.devices_other,
-      Icons.headphones,
-      Icons.chair,
-      Icons.table_bar,
-      Icons.lightbulb,
-      Icons.cable,
-      Icons.speaker,
-      Icons.print,
-      Icons.router,
-      Icons.camera,
-      Icons.electric_bolt,
-      Icons.air,
-    ];
-
-    final List<Color> availableColors = [
-      const Color(0xFF9A2C2C),
-      const Color(0xFF5593E4),
-      const Color(0xFF99CD60),
-      const Color(0xFFFECC52),
-      const Color(0xFFE44F5A),
-      const Color(0xFF9C27B0),
-      const Color(0xFF00BCD4),
-      const Color(0xFFFF9800),
-    ];
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.add_circle, color: Color(0xFF5593E4), size: 28),
-                  SizedBox(width: 10),
-                  Text(
-                    'เพิ่มประเภทครุภัณฑ์',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: typeNameController,
-                      decoration: InputDecoration(
-                        labelText: 'ชื่อประเภท',
-                        hintText: 'เช่น หูฟัง, โต๊ะ, เก้าอี้',
-                        prefixIcon: const Icon(
-                          Icons.edit,
-                          color: Color(0xFF5593E4),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF5593E4),
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'เลือกไอคอน',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: availableIcons.map((icon) {
-                        final isSelected = icon == selectedIcon;
-                        return InkWell(
-                          onTap: () {
-                            setDialogState(() {
-                              selectedIcon = icon;
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? selectedColor.withValues(alpha: 0.2)
-                                  : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected
-                                    ? selectedColor
-                                    : Colors.grey.shade300,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Icon(
-                              icon,
-                              color: isSelected
-                                  ? selectedColor
-                                  : Colors.grey.shade600,
-                              size: 28,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'เลือกสี',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: availableColors.map((color) {
-                        final isSelected = color == selectedColor;
-                        return InkWell(
-                          onTap: () {
-                            setDialogState(() {
-                              selectedColor = color;
-                            });
-                          },
-                          child: Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: color,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected
-                                    ? Colors.black
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
-                            ),
-                            child: isSelected
-                                ? const Icon(Icons.check, color: Colors.white)
-                                : null,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'ยกเลิก',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (typeNameController.text.isNotEmpty) {
-                      setState(() {
-                        equipmentTypes.add({
-                          'name': typeNameController.text,
-                          'icon': selectedIcon,
-                          'color': selectedColor,
-                        });
-                      });
-                      Navigator.pop(context);
-                      _showCustomSnackBar(
-                        'เพิ่มประเภท "${typeNameController.text}" สำเร็จ',
-                        isSuccess: true,
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5593E4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'เพิ่ม',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // Dialog เพิ่มครุภัณฑ์
-  void _showAddEquipmentDialog() {
-    final TextEditingController idController = TextEditingController();
-    final TextEditingController brandController = TextEditingController();
-    String selectedType = equipmentTypes.isNotEmpty
-        ? equipmentTypes[0]['name'] as String
-        : 'ทั่วไป';
-    String selectedStatus = 'ปกติ';
-    bool isSaving = false;
-
-    // Image upload state
-    File? selectedImage;
-    final ImagePicker picker = ImagePicker();
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.add_circle, color: Color(0xFF9A2C2C), size: 28),
-                  SizedBox(width: 10),
-                  Text(
-                    'เพิ่มครุภัณฑ์ใหม่',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment:
-                      CrossAxisAlignment.stretch, // ⭐ ใช้ stretch ให้สม่ำเสมอ
-                  children: [
-                    TextField(
-                      controller: idController,
-                      enabled: !isSaving,
-                      decoration: InputDecoration(
-                        labelText: 'รหัสครุภัณฑ์ (Asset ID)',
-                        prefixIcon: const Icon(
-                          Icons.qr_code,
-                          color: Color(0xFF9A2C2C),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF9A2C2C),
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: brandController,
-                      enabled: !isSaving,
-                      decoration: InputDecoration(
-                        labelText: 'ยี่ห้อ/รุ่น (Brand/Model)',
-                        prefixIcon: const Icon(
-                          Icons.branding_watermark,
-                          color: Color(0xFF9A2C2C),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF9A2C2C),
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'ประเภท',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
+                    // รายการห้องที่จะถูกลบ
+                    const Text(
+                      'ห้องที่จะถูกลบ:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
                     Container(
+                      constraints: const BoxConstraints(maxHeight: 100),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 15),
-                      child: DropdownButton<String>(
-                        value: selectedType,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        items: equipmentTypes
-                            .map(
-                              (type) => DropdownMenuItem(
-                                value: type['name'] as String,
-                                child: Text(type['name'] as String),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: isSaving
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => selectedType = value!),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'สถานะ',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: statusList.map((status) {
-                        final isSelected = selectedStatus == status['name'];
-                        return InkWell(
-                          onTap: isSaving
-                              ? null
-                              : () => setDialogState(
-                                  () =>
-                                      selectedStatus = status['name'] as String,
-                                ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? (status['color'] as Color).withValues(
-                                      alpha: 0.2,
-                                    )
-                                  : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected
-                                    ? status['color'] as Color
-                                    : Colors.grey.shade300,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  status['icon'] as IconData,
-                                  size: 18,
-                                  color: status['color'] as Color,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  status['name'] as String,
-                                  style: TextStyle(
-                                    color: status['color'] as Color,
-                                    fontWeight: FontWeight.bold,
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: roomNames
+                              .map(
+                                (name) => Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Image Picker Section
-                    Text(
-                      'รูปภาพครุภัณฑ์',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Center(
-                      child: GestureDetector(
-                        onTap: isSaving
-                            ? null
-                            : () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  builder: (context) {
-                                    return SafeArea(
-                                      child: Wrap(
-                                        children: [
-                                          ListTile(
-                                            leading: const Icon(
-                                              Icons.camera_alt,
-                                              color: Color(0xFF5593E4),
-                                            ),
-                                            title: const Text('ถ่ายรูป'),
-                                            onTap: () async {
-                                              Navigator.pop(context);
-                                              final XFile? photo = await picker
-                                                  .pickImage(
-                                                    source: ImageSource.camera,
-                                                  );
-                                              if (photo != null) {
-                                                setDialogState(() {
-                                                  selectedImage = File(
-                                                    photo.path,
-                                                  );
-                                                });
-                                              }
-                                            },
-                                          ),
-                                          ListTile(
-                                            leading: const Icon(
-                                              Icons.photo_library,
-                                              color: Color(0xFF99CD60),
-                                            ),
-                                            title: const Text(
-                                              'เลือกจาก Gallery',
-                                            ),
-                                            onTap: () async {
-                                              Navigator.pop(context);
-                                              final XFile? image = await picker
-                                                  .pickImage(
-                                                    source: ImageSource.gallery,
-                                                  );
-                                              if (image != null) {
-                                                setDialogState(() {
-                                                  selectedImage = File(
-                                                    image.path,
-                                                  );
-                                                });
-                                              }
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
-                        child: Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.grey.shade300,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                          ),
-                          child: selectedImage != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Stack(
-                                    fit: StackFit.expand,
+                                  child: Row(
                                     children: [
-                                      Image.file(
-                                        selectedImage!,
-                                        fit: BoxFit.cover,
+                                      Icon(
+                                        Icons.meeting_room,
+                                        size: 16,
+                                        color: Colors.red.shade300,
                                       ),
-                                      Positioned(
-                                        top: 4,
-                                        right: 4,
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            setDialogState(() {
-                                              selectedImage = null;
-                                            });
-                                          },
-                                          child: Container(
-                                            padding: const EdgeInsets.all(4),
-                                            decoration: const BoxDecoration(
-                                              color: Colors.red,
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: const Icon(
-                                              Icons.close,
-                                              size: 16,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.add_photo_alternate_outlined,
-                                      size: 32,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'เพิ่มรูปภาพ\n(ไม่บังคับ)',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSaving ? null : () => Navigator.pop(context),
-                  child: const Text(
-                    'ยกเลิก',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: isSaving
-                      ? null
-                      : () async {
-                          if (idController.text.isNotEmpty) {
-                            setDialogState(() => isSaving = true);
-
-                            String imageUrl = '';
-                            if (selectedImage != null) {
-                              final uploadedUrl = await ApiService()
-                                  .uploadImage(selectedImage!);
-                              if (uploadedUrl != null) {
-                                imageUrl = uploadedUrl;
-                              } else {
-                                if (context.mounted) {
-                                  _showCustomSnackBar(
-                                    'อัปโหลดรูปภาพไม่สำเร็จ แต่จะบันทึกข้อมูลอื่นต่อไป',
-                                    isSuccess: false,
-                                  );
-                                }
-                              }
-                            }
-
-                            final newAsset = {
-                              'asset_id': idController.text,
-                              'type': selectedType,
-                              'status': selectedStatus,
-                              'location_id': widget.locationId,
-                              'brand_model': brandController.text, // Add brand
-                              // ใช้ชื่อ user ที่ Login อยู่ ถ้าไม่มีให้ใช้ 'Admin'
-                              'inspectorName':
-                                  ApiService().currentUser?['fullname'] ??
-                                  'Admin',
-                              'image_url': imageUrl,
-                              'images': imageUrl.isNotEmpty ? [imageUrl] : [],
-                            };
-
-                            final result = await ApiService().addAsset(
-                              newAsset,
-                            );
-
-                            if (result['success']) {
-                              await _loadData();
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                                _showCustomSnackBar(
-                                  'เพิ่ม ${idController.text} สำเร็จ',
-                                  isSuccess: true,
-                                );
-                              }
-                            } else {
-                              setDialogState(() => isSaving = false);
-                              if (mounted) {
-                                _showCustomSnackBar(
-                                  result['message'],
-                                  isSuccess: false,
-                                );
-                              }
-                            }
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF9A2C2C),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text(
-                          'เพิ่ม',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // Dialog แก้ไขครุภัณฑ์
-  void _showEditEquipmentDialog(int index, Map<String, dynamic> equipment) {
-    final TextEditingController idController = TextEditingController(
-      text: equipment['asset_id'] ?? '',
-    );
-    final TextEditingController brandController = TextEditingController(
-      text: equipment['brand_model'] ?? '',
-    );
-    String selectedType = equipment['type'] as String;
-    String selectedStatus = equipment['status'] ?? 'ปกติ';
-
-    // Image Editing State
-    File? selectedImage;
-    String? currentImageUrl = equipment['image_url'];
-    final ImagePicker picker = ImagePicker();
-    bool isSaving = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.edit, color: Color(0xFF5593E4), size: 28),
-                  SizedBox(width: 10),
-                  Text(
-                    'แก้ไขครุภัณฑ์',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment
-                      .stretch, // ⭐ แก้: ใช้ stretch แทน start
-                  children: [
-                    TextField(
-                      controller: idController,
-                      enabled: !isSaving,
-                      decoration: InputDecoration(
-                        labelText: 'รหัสครุภัณฑ์ (Asset ID)',
-                        prefixIcon: const Icon(
-                          Icons.qr_code,
-                          color: Color(0xFF5593E4),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: brandController,
-                      enabled: !isSaving,
-                      decoration: InputDecoration(
-                        labelText: 'ยี่ห้อ/รุ่น (Brand/Model)',
-                        prefixIcon: const Icon(
-                          Icons.branding_watermark,
-                          color: Color(0xFF5593E4),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'ประเภท',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 15),
-                      child: DropdownButton<String>(
-                        value: selectedType,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        items: equipmentTypes.map((type) {
-                          return DropdownMenuItem(
-                            value: type['name'] as String,
-                            child: Row(
-                              children: [
-                                Icon(
-                                  type['icon'] as IconData,
-                                  size: 20,
-                                  color: type['color'] as Color,
-                                ),
-                                const SizedBox(width: 10),
-                                Text(
-                                  type['name'] as String,
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: isSaving
-                            ? null
-                            : (value) {
-                                setDialogState(() => selectedType = value!);
-                              },
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'สถานะ',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: statusList.map((status) {
-                        final isSelected = selectedStatus == status['name'];
-                        return InkWell(
-                          onTap: isSaving
-                              ? null
-                              : () {
-                                  setDialogState(
-                                    () => selectedStatus =
-                                        status['name'] as String,
-                                  );
-                                },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? (status['color'] as Color).withValues(
-                                      alpha: 0.2,
-                                    )
-                                  : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected
-                                    ? status['color'] as Color
-                                    : Colors.grey.shade300,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  status['icon'] as IconData,
-                                  size: 18,
-                                  color: status['color'] as Color,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  status['name'] as String,
-                                  style: TextStyle(
-                                    color: status['color'] as Color,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'รูปภาพ',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: isSaving
-                          ? null
-                          : () {
-                              showModalBottomSheet(
-                                context: context,
-                                builder: (context) => SafeArea(
-                                  child: Wrap(
-                                    children: [
-                                      ListTile(
-                                        leading: const Icon(Icons.camera_alt),
-                                        title: const Text('ถ่ายรูป'),
-                                        onTap: () async {
-                                          Navigator.pop(context);
-                                          final XFile? photo = await picker
-                                              .pickImage(
-                                                source: ImageSource.camera,
-                                              );
-                                          if (photo != null) {
-                                            setDialogState(
-                                              () => selectedImage = File(
-                                                photo.path,
-                                              ),
-                                            );
-                                          }
-                                        },
-                                      ),
-                                      ListTile(
-                                        leading: const Icon(
-                                          Icons.photo_library,
-                                          color: Color(0xFF99CD60),
-                                        ),
-                                        title: const Text('เลือกจาก Gallery'),
-                                        onTap: () async {
-                                          Navigator.pop(context);
-                                          final XFile? image = await picker
-                                              .pickImage(
-                                                source: ImageSource.gallery,
-                                              );
-                                          if (image != null) {
-                                            setDialogState(
-                                              () => selectedImage = File(
-                                                image.path,
-                                              ),
-                                            );
-                                          }
-                                        },
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        name,
+                                        style: const TextStyle(fontSize: 14),
                                       ),
                                     ],
                                   ),
                                 ),
-                              );
-                            },
-                      child: Container(
-                        height: 150,
-                        // ลบ width: double.infinity ออก เพราะใช้ stretch แล้ว
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
+                              )
+                              .toList(),
                         ),
-                        child: selectedImage != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    Image.file(
-                                      selectedImage!,
-                                      fit: BoxFit.cover,
-                                    ),
-                                    // ปุ่มลบรูป (มุมขวาบน)
-                                    Positioned(
-                                      top: 5,
-                                      right: 5,
-                                      child: GestureDetector(
-                                        onTap: () {
-                                          setDialogState(() {
-                                            selectedImage = null;
-                                          });
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.close,
-                                            size: 16,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : (currentImageUrl != null &&
-                                  currentImageUrl!.isNotEmpty)
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    Image.network(
-                                      currentImageUrl!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              const Center(
-                                                child: Icon(
-                                                  Icons.broken_image,
-                                                  color: Colors.grey,
-                                                ),
-                                              ),
-                                    ),
-                                    // ปุ่มลบรูป (มุมขวาบน)
-                                    Positioned(
-                                      top: 5,
-                                      right: 5,
-                                      child: GestureDetector(
-                                        onTap: () {
-                                          setDialogState(() {
-                                            currentImageUrl = null; // ลบรูปออก
-                                          });
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.close,
-                                            size: 16,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.add_a_photo,
-                                    size: 40,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'เพิ่มรูปภาพ',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ช่องใส่คำว่า Delete เพื่อยืนยัน
+                    const Text(
+                      'พิมพ์ "Delete" เพื่อยืนยันการลบ:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: passwordController,
+                      decoration: InputDecoration(
+                        hintText: 'Delete',
+                        prefixIcon: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        errorText: errorMessage,
                       ),
                     ),
                   ],
@@ -1890,182 +1379,59 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: isSaving ? null : () => Navigator.pop(context),
-                  child: const Text(
-                    'ยกเลิก',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: isSaving
+                  onPressed: isDeleting
                       ? null
-                      : () async {
-                          if (idController.text.isNotEmpty) {
-                            setDialogState(() => isSaving = true);
-
-                            // Prepare FULL Data Object for API
-                            final updatedData = Map<String, dynamic>.from(
-                              equipment,
-                            );
-                            updatedData['asset_id'] = idController.text;
-                            updatedData['brand_model'] =
-                                brandController.text; // Add brand
-                            updatedData['type'] = selectedType;
-                            updatedData['status'] = selectedStatus;
-                            // Ensure required fields exist
-                            updatedData['brand_model'] ??= '';
-                            updatedData['brand_model'] ??= '';
-                            updatedData['location_id'] = widget.locationId;
-
-                            // Handle Image Upload & Deletion
-                            if (selectedImage != null) {
-                              // ผู้ใช้เลือกรูปใหม่ -> อัปโหลด
-                              setDialogState(() => isSaving = true);
-                              final uploadedUrl = await ApiService()
-                                  .uploadImage(selectedImage!);
-                              if (uploadedUrl != null) {
-                                updatedData['image_url'] = uploadedUrl;
-                                updatedData['images'] = [
-                                  uploadedUrl,
-                                ]; // ⭐ อัปเดต List ด้วย
-                              }
-                            } else if (currentImageUrl == null) {
-                              // ผู้ใช้ลบรูปออก -> ส่ง empty string และ empty list
-                              updatedData['image_url'] = '';
-                              updatedData['images'] =
-                                  []; // ⭐ ต้องลบ List ออกด้วยไม่งั้น API Service จะไปหยิบอันเก่า
-                            } else {
-                              // ไม่ได้แก้ไขรูป -> ใช้ URL เดิม
-                              updatedData['image_url'] = currentImageUrl;
-                              // images ปล่อยไว้เหมือนเดิม (หรือจะ update ให้ตรงกันก็ได้ แต่ไม่ซีเรียสเท่าการลบ)
-                            }
-
-                            // Update inspector to current user
-                            updatedData['inspectorName'] =
-                                ApiService().currentUser?['fullname'] ??
-                                'Admin';
-
-                            final result = await ApiService().updateAsset(
-                              equipment['asset_id'].toString(),
-                              updatedData,
-                            );
-
-                            if (result['success']) {
-                              await _loadData();
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                                _showCustomSnackBar(
-                                  'บันทึกสำเร็จ',
-                                  isSuccess: true,
-                                );
-                              }
-                            } else {
-                              setDialogState(() => isSaving = false);
-                              if (mounted) {
-                                _showCustomSnackBar(
-                                  result['message'],
-                                  isSuccess: false,
-                                );
-                              }
-                            }
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5593E4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text(
-                          'บันทึก',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // Dialog ยืนยันลบ
-  void _showDeleteConfirmation(int index, String id) {
-    bool isDeleting = false;
-    // id parameter here is actually asset_id or id string, but for API we need ROW ID.
-    // So we should find the item again using index to be sure, or better pass the whole object.
-    final equipment = equipmentList[index];
-    final assetIdVal = equipment['asset_id']
-        .toString(); // Use asset_id (String) for deletion
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: const [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: Colors.orange,
-                    size: 28,
-                  ),
-                  SizedBox(width: 10),
-                  Text('ยืนยันการลบ', style: TextStyle(fontSize: 20)),
-                ],
-              ),
-              content: Text(
-                'คุณต้องการลบ "$assetIdVal"\nใช่หรือไม่?\n\nการลบจะไม่สามารถกู้คืนได้',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isDeleting ? null : () => Navigator.pop(context),
-                  child: const Text(
+                      : () => Navigator.pop(context, false),
+                  child: Text(
                     'ยกเลิก',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(
+                      color: isDeleting ? Colors.grey.shade300 : Colors.grey,
+                    ),
                   ),
                 ),
                 ElevatedButton(
                   onPressed: isDeleting
                       ? null
                       : () async {
-                          setDialogState(() => isDeleting = true);
-                          final result = await ApiService().deleteAsset(
-                            assetIdVal,
-                          );
+                          // แสดง loading ระหว่าง verify
+                          setDialogState(() {
+                            isDeleting = true;
+                            errorMessage = null;
+                          });
 
-                          if (result['success']) {
-                            await _loadData();
-                            if (context.mounted) {
-                              Navigator.pop(context);
-                              _showCustomSnackBar('ลบสำเร็จ', isSuccess: true);
+                          // ตรวจสอบว่าพิมพ์คำว่า Delete ถูกต้องหรือไม่
+                          if (passwordController.text != 'Delete') {
+                            setDialogState(() {
+                              isDeleting = false;
+                              errorMessage =
+                                  'กรุณาพิมพ์คำว่า "Delete" เพื่อยืนยัน';
+                            });
+                            return;
+                          }
+
+                          // คำยืนยันถูกต้อง - เริ่มลบห้อง
+
+                          // ลบห้องทั้งหมดใน Database
+                          bool allSuccess = true;
+                          for (var room in rooms) {
+                            final locationId = int.parse(
+                              room['location_id'].toString(),
+                            );
+                            final result = await ApiService().deleteLocation(
+                              locationId,
+                            );
+                            if (result['success'] != true) {
+                              allSuccess = false;
+                              break;
                             }
-                          } else {
-                            setDialogState(() => isDeleting = false);
-                            if (mounted) {
-                              _showCustomSnackBar(
-                                result['message'],
-                                isSuccess: false,
-                              );
-                            }
+                          }
+
+                          if (context.mounted) {
+                            Navigator.pop(context, allSuccess);
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
+                    backgroundColor: isDeleting ? Colors.grey : Colors.red,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -2079,7 +1445,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                             strokeWidth: 2,
                           ),
                         )
-                      : const Text('ลบ', style: TextStyle(color: Colors.white)),
+                      : const Text(
+                          'ยืนยันลบ',
+                          style: TextStyle(color: Colors.white),
+                        ),
                 ),
               ],
             );
@@ -2087,80 +1456,147 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         );
       },
     );
+
+    return result ?? false;
   }
 
-  // Empty State
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.inventory_2_outlined,
-            size: 80,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'ไม่มีครุภัณฑ์ในห้องนี้',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            equipmentList.isEmpty
-                ? 'กดปุ่ม + ด้านล่างเพื่อเพิ่ม'
-                : 'ไม่พบข้อมูลตาม Filter',
-            style: TextStyle(color: Colors.grey.shade400),
-          ),
-        ],
-      ),
+  // ฟังก์ชันลบชั้น (รองรับทั้งชั้นว่างและชั้นที่มีห้อง)
+  void _deleteFloor(int floor) {
+    setState(() {
+      // ลบชั้นออกจาก Map
+      apiFloorRooms.remove(floor);
+
+      // ถ้าชั้นที่ลบคือชั้นที่เลือกอยู่ ให้ย้ายไปชั้นอื่น
+      if (selectedFloor == floor) {
+        if (apiFloorRooms.isNotEmpty) {
+          // เลือกชั้นแรกที่เหลือ
+          selectedFloor = apiFloorRooms.keys.reduce((a, b) => a < b ? a : b);
+        }
+      }
+    });
+
+    // แสดง Notification ด้านล่าง
+    _showBottomNotification(
+      message: 'ลบชั้น $floor สำเร็จ',
+      icon: Icons.delete_sweep,
+      color: Colors.red,
     );
   }
+}
 
-  // Custom SnackBar Helper
-  void _showCustomSnackBar(String message, {bool isSuccess = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isSuccess ? Icons.check_circle : Icons.error_outline,
-              color: Colors.white,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+// === Widget: iPhone-style Notification ===
+// === Widget: Bottom Notification ===
+class _BottomNotificationWidget extends StatefulWidget {
+  final String message;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onDismiss;
+
+  const _BottomNotificationWidget({
+    required this.message,
+    required this.icon,
+    required this.color,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_BottomNotificationWidget> createState() =>
+      _BottomNotificationWidgetState();
+}
+
+class _BottomNotificationWidgetState extends State<_BottomNotificationWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _slideAnimation;
+  bool _isDismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1), // เริ่มจากด้านล่าง (ซ่อน)
+      end: Offset.zero, // เลื่อนขึ้นมา
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    _controller.forward();
+
+    // Auto dismiss หลัง 2.5 วินาที
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted && !_isDismissed) {
+        _dismiss();
+      }
+    });
+  }
+
+  void _dismiss() {
+    if (_isDismissed) return;
+    _isDismissed = true;
+    _controller.reverse().then((_) {
+      widget.onDismiss();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      bottom:
+          MediaQuery.of(context).padding.bottom +
+          20, // เหนือขอบล่าง / home indicator
+      left: 16,
+      right: 16,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: GestureDetector(
+          onVerticalDragEnd: (details) {
+            // ปัดลงเพื่อปิด
+            if (details.primaryVelocity != null &&
+                details.primaryVelocity! > 0) {
+              _dismiss();
+            }
+          },
+          onTap: _dismiss, // แตะเพื่อปิด
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(16),
+            color: widget.color,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
                 children: [
-                  Text(
-                    isSuccess ? 'สำเร็จ' : 'แจ้งเตือน',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.white,
+                  Icon(widget.icon, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                  Text(
-                    message,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  // ไอคอนลูกศรลง (บอกว่าปัดลงได้)
+                  const Icon(
+                    Icons.keyboard_arrow_down,
+                    color: Colors.white70,
+                    size: 20,
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
-        backgroundColor: isSuccess
-            ? const Color(0xFF99CD60)
-            : const Color(0xFFE44F5A),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.all(16),
-        elevation: 8,
-        duration: const Duration(seconds: 3),
       ),
     );
   }
