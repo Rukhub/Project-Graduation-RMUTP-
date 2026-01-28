@@ -1,0 +1,5 @@
+{
+  "artifactType": "ARTIFACT_TYPE_OTHER",
+  "summary": "Additional API endpoint for fetching admin activity history (check logs) for Bo to implement.",
+  "updatedAt": "2026-01-28T14:36:40.908400100Z"
+}
