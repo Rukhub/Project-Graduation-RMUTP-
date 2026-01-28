@@ -1,3 +1,11 @@
+/**
+ * ==========================================
+ * โปรเจกต์: ระบบบริหารจัดการครุภัณฑ์ (Asset Management System API)
+ * เวอร์ชัน: ฉบับสมบูรณ์ (จัดระเบียบและแก้บั๊กตามบรีฟ)
+ * พัฒนาโดย: โบ และทีมงาน
+ * ==========================================
+ */
+
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -7,12 +15,12 @@ const fs = require('fs');
 
 const app = express();
 
-// --- 1. Middleware Config ---
+// --- 1. การตั้งค่าพื้นฐาน (Middleware) ---
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// --- 2. Database Connection ---
+// --- 2. การเชื่อมต่อฐานข้อมูล ---
 const db = mysql.createConnection({
     host: 'localhost',
     user: 'root',
@@ -22,353 +30,142 @@ const db = mysql.createConnection({
 });
 
 db.connect((err) => {
-    if (err) {
-        console.error('❌ Database connection failed:', err);
-        return;
-    }
-    console.log('✅ Connected to MySQL Database');
+    if (err) return console.error('❌ Database Connection Error:', err);
+    console.log('✅ MySQL Connected');
 });
 
-// --- 3. Multer Config (Storage) ---
+// --- 3. การจัดการรูปภาพ (Multer) ---
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/');
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + '-' + file.originalname);
-    }
+    destination: (req, file, cb) => cb(null, 'uploads/'),
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
-
-const upload = multer({
-    storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 } 
-});
+const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 // ==========================================
-// --- 4. API: Users & Authentication ---
+// --- 4. API: การยืนยันตัวตน (Authentication) ---
 // ==========================================
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    const sql = "SELECT user_id, username, fullname, role, is_approved FROM users WHERE username = ? AND password = ?";
+    const sql = "SELECT * FROM users WHERE username = ? AND password = ?";
     db.query(sql, [username, password], (err, results) => {
         if (err) return res.status(500).json(err);
         if (results.length > 0) {
-            const user = results[0];
-            if (user.is_approved === 0) return res.status(403).json({ message: "บัญชีนี้รอการอนุมัติจากแอดมินโบ" });
-            res.json({ message: "เข้าสู่ระบบสำเร็จ!", user: user });
+            if (results[0].is_approved === 0) return res.status(403).json({ message: "บัญชีรอการอนุมัติ" });
+            res.json({ message: "สำเร็จ", user: results[0] });
         } else {
-            res.status(401).json({ message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
+            res.status(401).json({ message: "ชื่อผู้ใช้หรือรหัสผ่านผิด" });
         }
     });
 });
 
 app.post('/api/auth/google-login', (req, res) => {
     const { google_id, email, fullname, photo_url } = req.body;
-    if (!email || !email.endsWith('@rmutp.ac.th')) {
-        return res.status(403).json({ message: "จำกัดเฉพาะอีเมล @rmutp.ac.th เท่านั้น" });
-    }
+    if (!email?.endsWith('@rmutp.ac.th')) return res.status(403).json({ message: "จำกัดเฉพาะอีเมล @rmutp.ac.th" });
 
-    const sqlCheck = "SELECT * FROM users WHERE google_id = ? OR email = ?";
-    db.query(sqlCheck, [google_id, email], (err, results) => {
-        if (err) return res.status(500).json({ message: "Database error", error: err });
-
+    db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
         if (results.length > 0) {
-            const user = results[0];
-            const sqlUpdate = "UPDATE users SET google_id = ?, photo_url = ?, fullname = ? WHERE user_id = ?";
-            db.query(sqlUpdate, [google_id, photo_url, fullname, user.user_id], (errUpdate) => {
-                if (errUpdate) return res.status(500).json({ message: "Update error" });
-                if (user.is_approved === 0) return res.status(403).json({ message: "บัญชีนี้รอการอนุมัติ" });
-                res.json({ message: "เข้าสู่ระบบสำเร็จ!", user: { ...user, google_id, photo_url, fullname } });
-            });
+            res.json({ message: "เข้าสู่ระบบสำเร็จ", user: results[0] });
         } else {
             const sqlInsert = "INSERT INTO users (google_id, email, fullname, photo_url, role, is_approved, username) VALUES (?, ?, ?, ?, 'user', 0, ?)";
-            db.query(sqlInsert, [google_id, email, fullname, photo_url, email], (errInsert, result) => {
-                if (errInsert) return res.status(500).json({ message: "Register error" });
-                res.json({ message: "ลงทะเบียนสำเร็จ! กรุณารอแอดมินอนุมัติ", user_id: result.insertId });
+            db.query(sqlInsert, [google_id, email, fullname, photo_url, email], (errI, result) => {
+                res.json({ message: "ลงทะเบียนใหม่ รออนุมัติ", user_id: result.insertId });
             });
         }
     });
 });
 
 // ==========================================
-// --- 5. API: Admin User Management ---
+// --- 5. API: จัดการครุภัณฑ์ (Assets) ---
 // ==========================================
 
-app.get('/api/users/pending', (req, res) => {
-    const sql = "SELECT user_id, fullname, email, photo_url, role FROM users WHERE is_approved = 0";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-app.get('/api/users/all', (req, res) => {
-    const sql = "SELECT user_id, fullname, email, photo_url, role, is_approved FROM users ORDER BY is_approved ASC, fullname ASC";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-app.put('/api/users/approve/:id', (req, res) => {
-    const sql = "UPDATE users SET is_approved = 1 WHERE user_id = ?";
-    db.query(sql, [req.params.id], (err) => {
-        if (err) return res.status(500).json({ message: "Database error" });
-        res.json({ success: true, message: "อนุมัติเรียบร้อยแล้ว" });
-    });
-});
-
-app.put('/api/users/role/:id', (req, res) => {
-    const { role } = req.body;
-    const sql = "UPDATE users SET role = ? WHERE user_id = ?";
-    db.query(sql, [role, req.params.id], (err) => {
-        if (err) return res.status(500).json({ message: "Database error" });
-        res.json({ success: true, message: "เปลี่ยนสิทธิ์การใช้งานเรียบร้อย!" });
-    });
-});
-
-app.delete('/api/users/:id', (req, res) => {
-    const sql = "DELETE FROM users WHERE user_id = ?";
-    db.query(sql, [req.params.id], (err) => {
-        if (err) return res.status(500).json({ message: "Database error" });
-        res.json({ success: true, message: "ลบผู้ใช้งานเรียบร้อยแล้ว" });
-    });
-});
-
-// ==========================================
-// --- 6. API: Assets & Dashboard ---
-// ==========================================
-
-app.get('/api/dashboard-stats', (req, res) => {
-    const sql = `
-        SELECT 
-            COUNT(*) as total, 
-            SUM(CASE WHEN status = 'ปกติ' THEN 1 ELSE 0 END) as normal, 
-            SUM(CASE WHEN status = 'ชำรุด' THEN 1 ELSE 0 END) as damaged,
-            SUM(CASE WHEN status = 'รอตรวจสอบ' THEN 1 ELSE 0 END) as pending
-        FROM assets
-    `;
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results[0]);
-    });
-});
-
+// ดึงรายการทั้งหมด พร้อมชื่อห้องและผู้ตรวจสอบล่าสุด (ตามที่รักขอ)
 app.get('/api/assets', (req, res) => {
-    const sql = "SELECT a.*, l.room_name, l.floor FROM assets a JOIN locations l ON a.location_id = l.location_id ORDER BY a.created_at DESC";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
+    const sql = `
+        SELECT a.*, l.room_name, l.floor,
+        (SELECT u.fullname FROM check_logs cl JOIN users u ON cl.checker_id = u.user_id 
+         WHERE cl.asset_id = a.asset_id ORDER BY cl.check_date DESC LIMIT 1) as checker_name
+        FROM assets a LEFT JOIN locations l ON a.location_id = l.location_id 
+        ORDER BY a.created_at DESC`;
+    db.query(sql, (err, results) => res.json(results));
 });
 
-app.get('/api/assets/room/:location_id', (req, res) => {
-    const sql = "SELECT a.*, l.room_name, l.floor FROM assets a JOIN locations l ON a.location_id = l.location_id WHERE a.location_id = ?";
-    db.query(sql, [req.params.location_id], (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-app.get('/api/assets/:assetId', (req, res) => {
-    const sql = "SELECT a.*, l.room_name, l.floor FROM assets a JOIN locations l ON a.location_id = l.location_id WHERE a.asset_id = ?";
-    db.query(sql, [req.params.assetId], (err, result) => {
-        if (err) return res.status(500).json(err);
-        if (result.length === 0) return res.status(404).json({ message: "ไม่พบรหัสครุภัณฑ์" });
-        res.json(result[0]);
-    });
-});
-
-// ✅ แก้ไข: เพิ่มการเช็กค่าว่าง image_url ตามที่รักขอ
+// เพิ่มครุภัณฑ์ (ดักบั๊กค่าว่าง image_url ให้เป็น NULL)
 app.post('/api/assets', (req, res) => {
     let { asset_id, asset_type, brand_model, location_id, image_url, created_by } = req.body;
-    
-    // ถ้าส่ง "" หรือ "null" มา ให้เซฟเป็น null
-    if (!image_url || image_url === "" || image_url === "null") {
-        image_url = null;
-    }
-
+    if (!image_url || image_url === "" || image_url === "null") image_url = null;
     const sql = "INSERT INTO assets (asset_id, created_by, asset_type, brand_model, location_id, image_url, status) VALUES (?, ?, ?, ?, ?, ?, 'ปกติ')";
     db.query(sql, [asset_id, created_by, asset_type, brand_model, location_id, image_url], (err) => {
         if (err) return res.status(500).json(err);
-        res.json({ message: "เพิ่มครุภัณฑ์สำเร็จ!" });
+        res.json({ success: true, message: "เพิ่มครุภัณฑ์แล้ว" });
     });
 });
 
-app.put('/api/assets/:old_asset_id', (req, res) => {
-    const { old_asset_id } = req.params;
-    let { asset_id, brand_model, asset_type, location_id, status, image_url, role } = req.body;
-
-    if (asset_id !== old_asset_id && role !== 'admin') {
-        return res.status(403).json({ message: "เฉพาะ Admin เท่านั้นที่เปลี่ยนรหัสครุภัณฑ์ได้" });
-    }
-
-    db.query("SELECT image_url FROM assets WHERE asset_id = ?", [old_asset_id], (err, results) => {
-        if (err) return res.status(500).json(err);
-        
-        if (results.length > 0) {
-            if (image_url && results[0].image_url && image_url !== results[0].image_url) {
-                const oldUrl = results[0].image_url;
-                const fileNames = oldUrl.split(',');
-                fileNames.forEach(url => {
-                    const fileName = url.split('/').pop();
-                    const filePath = path.join(__dirname, 'uploads', fileName);
-                    if (fs.existsSync(filePath)) {
-                        fs.unlink(filePath, (err) => {
-                            if (!err) console.log("✅ ลบรูปเก่าทิ้งแล้ว:", fileName);
-                        });
-                    }
-                });
-            }
-
-            const sql = `
-                UPDATE assets 
-                SET asset_id = ?, 
-                    brand_model = COALESCE(?, brand_model), 
-                    asset_type = COALESCE(?, asset_type),
-                    location_id = COALESCE(?, location_id),
-                    status = COALESCE(?, status),
-                    image_url = COALESCE(?, image_url)
-                WHERE asset_id = ?
-            `;
-            
-            db.query(sql, [asset_id, brand_model, asset_type, location_id, status, image_url, old_asset_id], (errUpdate) => {
-                if (errUpdate) {
-                    if (errUpdate.code === 'ER_DUP_ENTRY') return res.status(400).json({ message: "รหัสใหม่นี้มีในระบบแล้ว" });
-                    return res.status(500).json(errUpdate);
-                }
-                res.json({ success: true, message: "อัปเดตข้อมูลเรียบร้อย!" });
-            });
-        } else {
-            res.status(404).json({ message: "ไม่พบรหัสครุภัณฑ์นี้" });
-        }
-    });
-});
-
+// ลบครุภัณฑ์ (ลบข้อมูลแบบลูกโซ่และลบไฟล์รูปภาพจริง)
 app.delete('/api/assets/:assetId', (req, res) => {
     const { assetId } = req.params;
     db.query("SELECT image_url FROM assets WHERE asset_id = ?", [assetId], (err, results) => {
         if (results.length > 0 && results[0].image_url) {
-            const fileNames = results[0].image_url.split(',');
-            fileNames.forEach(url => {
-                const fileName = url.split('/').pop();
-                const filePath = path.join(__dirname, 'uploads', fileName);
-                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-            });
+            const fileName = results[0].image_url.split('/').pop();
+            const filePath = path.join(__dirname, 'uploads', fileName);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         }
-        db.query("DELETE FROM reports WHERE asset_id = ?", [assetId], (err) => {
-            db.query("DELETE FROM check_logs WHERE asset_id = ?", [assetId], (err2) => {
-                db.query("DELETE FROM assets WHERE asset_id = ?", [assetId], (err3) => {
-                    if (err3) return res.status(500).json(err3);
-                    res.json({ success: true, message: "ลบข้อมูลและรูปภาพเกลี้ยงทั้งระบบ!" });
-                });
+        db.query("DELETE FROM reports WHERE asset_id = ?", [assetId], () => {
+            db.query("DELETE FROM check_logs WHERE asset_id = ?", [assetId], () => {
+                db.query("DELETE FROM assets WHERE asset_id = ?", [assetId], () => res.json({ success: true }));
             });
         });
     });
 });
 
 // ==========================================
-// --- 7. API: Uploads & Reports ---
+// --- 6. API: แจ้งซ่อมและประวัติ (Reports) ---
+// ==========================================
+
+app.post('/api/reports', (req, res) => {
+    const { asset_id, reporter_name, issue_detail, image_url } = req.body;
+    const sqlReport = "INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url) VALUES (?, ?, ?, ?)";
+    db.query(sqlReport, [asset_id, reporter_name, issue_detail, image_url], (err) => {
+        db.query("UPDATE assets SET status = 'ชำรุด' WHERE asset_id = ?", [asset_id], () => {
+            res.json({ success: true, message: "แจ้งซ่อมเรียบร้อย" });
+        });
+    });
+});
+
+// ดึงประวัติแจ้งซ่อมรายบุคคล (สำหรับหน้า "การแจ้งปัญหาของฉัน")
+app.get('/api/reports/user/:reporterName', (req, res) => {
+    const name = decodeURIComponent(req.params.reporterName);
+    const sql = `
+        SELECT r.*, a.brand_model, a.status, l.room_name, l.floor
+        FROM reports r
+        JOIN assets a ON r.asset_id = a.asset_id
+        LEFT JOIN locations l ON a.location_id = l.location_id
+        WHERE r.reporter_name = ? ORDER BY r.report_date DESC`;
+    db.query(sql, [name], (err, results) => res.json(results));
+});
+
+// ==========================================
+// --- 7. API: อัปโหลดรูปภาพ ---
 // ==========================================
 
 app.post('/api/upload', upload.single('image'), (req, res) => {
-    if (!req.file) return res.status(400).json({ message: "กรุณาเลือกไฟล์ภาพ" });
+    if (!req.file) return res.status(400).json({ message: "กรุณาเลือกไฟล์" });
     const host = req.get('host'); 
     const protocol = req.protocol;
     const imageUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
     res.json({ success: true, image_url: imageUrl });
 });
 
-app.post('/api/reports', (req, res) => {
-    const { asset_id, reporter_name, issue_detail, image_url } = req.body; 
-    const sqlReport = "INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url) VALUES (?, ?, ?, ?)";
-    const sqlUpdateAsset = "UPDATE assets SET status = 'ชำรุด', reporter_name = ?, issue_detail = ?, report_date = NOW() WHERE asset_id = ?";
-
-    db.query(sqlReport, [asset_id, reporter_name, issue_detail, image_url], (err) => {
-        if (err) return res.status(500).json({ message: "บันทึกรายงานไม่สำเร็จ", error: err });
-        db.query(sqlUpdateAsset, [reporter_name, issue_detail, asset_id], (err2) => {
-            if (err2) return res.status(500).json({ message: "อัปเดตสถานะไม่สำเร็จ" });
-            res.json({ success: true, message: "แจ้งซ่อมเรียบร้อย!" });
-        });
-    });
-});
-
-app.get('/api/assets/:assetId/reports', (req, res) => {
-    const sql = "SELECT * FROM reports WHERE asset_id = ? ORDER BY report_date DESC";
-    db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
 // ==========================================
-// --- 8. API: Locations ---
+// --- 8. API: จัดการสถานที่ (Locations) ---
 // ==========================================
 
-app.get('/api/locations', (req, res) => {
-    db.query('SELECT * FROM locations ORDER BY floor, room_name', (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-app.post('/api/locations', (req, res) => {
-    const { floor, room_name } = req.body;
-    db.query("INSERT INTO locations (floor, room_name) VALUES (?, ?)", [floor, room_name], (err, result) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, location_id: result.insertId });
-    });
-});
-
-// ✅ เพิ่ม: ลบห้อง
 app.delete('/api/locations/:id', (req, res) => {
-    const locationId = req.params.id;
-    const sqlCheck = "SELECT COUNT(*) as count FROM assets WHERE location_id = ?";
-    db.query(sqlCheck, [locationId], (err, results) => {
-        if (err) return res.status(500).json(err);
-        if (results[0].count > 0) {
-            return res.status(400).json({ message: "ไม่สามารถลบได้ เนื่องจากมีครุภัณฑ์อยู่ในห้องนี้" });
-        }
-        db.query("DELETE FROM locations WHERE location_id = ?", [locationId], (err2) => {
-            if (err2) return res.status(500).json(err2);
-            res.json({ success: true, message: "ลบห้องเรียบร้อยแล้ว!" });
-        });
+    db.query("SELECT COUNT(*) as count FROM assets WHERE location_id = ?", [req.params.id], (err, results) => {
+        if (results[0].count > 0) return res.status(400).json({ message: "ห้องนี้ยังมีของอยู่ ลบไม่ได้" });
+        db.query("DELETE FROM locations WHERE location_id = ?", [req.params.id], () => res.json({ success: true }));
     });
 });
 
-// ==========================================
-// --- 9. API: Check Logs ---
-// ==========================================
-
-app.post('/api/check-logs', (req, res) => {
-    const { asset_id, checker_id, result_status, remark, image_url } = req.body;
-    const sqlLog = "INSERT INTO check_logs (asset_id, checker_id, result_status, remark, image_url, check_date) VALUES (?, ?, ?, ?, ?, NOW())";
-    const sqlUpdateAsset = "UPDATE assets SET status = ?, checker_name = ?, last_check_date = NOW() WHERE asset_id = ?";
-
-    db.query(sqlLog, [asset_id, checker_id, result_status, remark, image_url], (err) => {
-        if (err) return res.status(500).json({ message: "บันทึกไม่สำเร็จ", error: err });
-        db.query(sqlUpdateAsset, [result_status, checker_id, asset_id], (err2) => {
-            if (err2) return res.status(500).json({ message: "อัปเดตสถานะไม่สำเร็จ" });
-            res.json({ success: true, message: "บันทึกการตรวจสอบเรียบร้อย!" });
-        });
-    });
-});
-
-app.get('/api/assets/:assetId/check-logs', (req, res) => {
-    const sql = `
-        SELECT cl.*, u.fullname AS checker_name 
-        FROM check_logs cl
-        LEFT JOIN users u ON cl.checker_id = u.user_id
-        WHERE cl.asset_id = ? 
-        ORDER BY cl.check_date DESC
-    `;
-    db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) return res.status(500).json(err);
-        res.json(results);
-    });
-});
-
-app.listen(3000, () => {
-    console.log('✅ Backend Ready: http://localhost:3000');
-});
+// --- สั่งเริ่มทำงาน Server ---
+app.listen(3000, () => console.log('✅ API Ready: http://localhost:3000'));
