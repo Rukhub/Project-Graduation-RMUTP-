@@ -312,7 +312,7 @@ class ApiService {
               assetData['image_url']?.toString().isNotEmpty == true
               ? assetData['image_url']
               : (assetData['images'] != null &&
-                  (assetData['images'] as List).isNotEmpty)
+                    (assetData['images'] as List).isNotEmpty)
               ? assetData['images'][0]
               : null,
           'created_by': assetData['created_by'], // Add created_by
@@ -673,7 +673,9 @@ class ApiService {
   }
 
   // ⭐ ดึงประวัติการตรวจสอบของ Admin (จาก check_logs)
-  Future<List<Map<String, dynamic>>> getCheckLogsByChecker(String checkerName) async {
+  Future<List<Map<String, dynamic>>> getCheckLogsByChecker(
+    String checkerName,
+  ) async {
     try {
       final encodedName = Uri.encodeComponent(checkerName);
       debugPrint('📋 กำลังดึงประวัติการดำเนินการของ: $checkerName');

@@ -39,7 +39,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   String? reporterName;
   String? reportReason;
   List<String> reportImages = [];
-  
+
   // ⭐ Admin check - ใช้ทั่วทั้ง widget
   bool get isAdmin => ApiService().currentUser?['role'] == 'admin';
 
@@ -227,8 +227,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           if (updatedAsset['image_url'] != null) {
             final imgUrl = updatedAsset['image_url'].toString();
             if (imgUrl.isNotEmpty && imgUrl != 'null') {
-              imagePaths = imgUrl.split(',').where((s) => s.trim().isNotEmpty).toList();
-              debugPrint('📸 Loaded ${imagePaths.length} equipment images from API');
+              imagePaths = imgUrl
+                  .split(',')
+                  .where((s) => s.trim().isNotEmpty)
+                  .toList();
+              debugPrint(
+                '📸 Loaded ${imagePaths.length} equipment images from API',
+              );
             }
           }
           // Fallback: try 'images' key
@@ -237,7 +242,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             if (val is List) {
               imagePaths = List<String>.from(val);
             } else if (val is String && val.isNotEmpty) {
-              imagePaths = val.split(',').where((s) => s.trim().isNotEmpty).toList();
+              imagePaths = val
+                  .split(',')
+                  .where((s) => s.trim().isNotEmpty)
+                  .toList();
             }
           }
 
@@ -1825,7 +1833,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF9A2C2C),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

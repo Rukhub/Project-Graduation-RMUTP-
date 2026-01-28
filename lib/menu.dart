@@ -209,7 +209,8 @@ class _MenuScreenState extends State<MenuScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const AdminActivityHistoryScreen(),
+                        builder: (context) =>
+                            const AdminActivityHistoryScreen(),
                       ),
                     );
                   },

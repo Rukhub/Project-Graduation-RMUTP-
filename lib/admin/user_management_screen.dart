@@ -751,7 +751,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             if (isCurrentUser) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('⚠️ คุณไม่สามารถแก้ไขบัญชีของตัวเองได้'),
+                                  content: Text(
+                                    '⚠️ คุณไม่สามารถแก้ไขบัญชีของตัวเองได้',
+                                  ),
                                   backgroundColor: Colors.orange,
                                 ),
                               );
@@ -777,15 +779,19 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                                   Icon(
                                     Icons.manage_accounts,
                                     size: 18,
-                                    color: isCurrentUser ? Colors.grey : Colors.blue,
+                                    color: isCurrentUser
+                                        ? Colors.grey
+                                        : Colors.blue,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    isCurrentUser 
+                                    isCurrentUser
                                         ? 'เปลี่ยนตำแหน่ง (ไม่สามารถเปลี่ยนตัวเองได้)'
                                         : 'เปลี่ยนตำแหน่ง',
                                     style: TextStyle(
-                                      color: isCurrentUser ? Colors.grey : Colors.black,
+                                      color: isCurrentUser
+                                          ? Colors.grey
+                                          : Colors.black,
                                       fontSize: isCurrentUser ? 12 : 14,
                                     ),
                                   ),
@@ -800,15 +806,19 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                                   Icon(
                                     Icons.delete,
                                     size: 18,
-                                    color: isCurrentUser ? Colors.grey : Colors.red,
+                                    color: isCurrentUser
+                                        ? Colors.grey
+                                        : Colors.red,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    isCurrentUser 
+                                    isCurrentUser
                                         ? 'ลบผู้ใช้ (ไม่สามารถลบตัวเองได้)'
                                         : 'ลบผู้ใช้',
                                     style: TextStyle(
-                                      color: isCurrentUser ? Colors.grey : Colors.red,
+                                      color: isCurrentUser
+                                          ? Colors.grey
+                                          : Colors.red,
                                       fontSize: isCurrentUser ? 12 : 14,
                                     ),
                                   ),

@@ -934,8 +934,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
         ],
 
         // ถ้าสถานะเป็น "ปกติ" ให้เว้นระยะก่อนปุ่มบันทึก
-        if (selectedStatus == 'ปกติ')
-          const SizedBox(height: 10),
+        if (selectedStatus == 'ปกติ') const SizedBox(height: 10),
 
         // ปุ่มบันทึก
         _buildSubmitButton(),

@@ -6,23 +6,30 @@ class AdminActivityHistoryScreen extends StatefulWidget {
   const AdminActivityHistoryScreen({super.key});
 
   @override
-  State<AdminActivityHistoryScreen> createState() => _AdminActivityHistoryScreenState();
+  State<AdminActivityHistoryScreen> createState() =>
+      _AdminActivityHistoryScreenState();
 }
 
-class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen> {
+class _AdminActivityHistoryScreenState
+    extends State<AdminActivityHistoryScreen> {
   List<Map<String, dynamic>> checkLogs = [];
   bool isLoading = true;
   String? errorMessage;
 
   // สถิติ
   int totalInspections = 0;
-  int normalCount = 0;      // ปกติ
-  int repairingCount = 0;   // อยู่ระหว่างซ่อม
-  int brokenCount = 0;      // ชำรุด
+  int normalCount = 0; // ปกติ
+  int repairingCount = 0; // อยู่ระหว่างซ่อม
+  int brokenCount = 0; // ชำรุด
 
   // Filter
   String selectedFilter = 'ทั้งหมด';
-  final List<String> filterOptions = ['ทั้งหมด', 'ปกติ', 'อยู่ระหว่างซ่อม', 'ชำรุด'];
+  final List<String> filterOptions = [
+    'ทั้งหมด',
+    'ปกติ',
+    'อยู่ระหว่างซ่อม',
+    'ชำรุด',
+  ];
 
   @override
   void initState() {
@@ -38,37 +45,53 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
     try {
       final currentUser = ApiService().currentUser;
-      final checkerName = currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
+      final checkerName =
+          currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
 
       // 1. ดึงประวัติการตรวจสอบ (Check Logs)
       final logs = await ApiService().getCheckLogsByChecker(checkerName);
-      
+
       // 2. ดึงประวัติการแจ้งปัญหาของตัวเอง (My Reports)
       final reports = await ApiService().getMyReports(checkerName);
 
       // 3. รวมข้อมูล และแปลงให้เป็น format เดียวกัน
       // Add 'activity_type' to distinguish
-      final processedLogs = logs.map((log) => {
-        ...log,
-        'activity_type': 'inspection', // เป็นการตรวจสอบ
-        'date': log['check_date'],
-      }).toList();
+      final processedLogs = logs
+          .map(
+            (log) => {
+              ...log,
+              'activity_type': 'inspection', // เป็นการตรวจสอบ
+              'date': log['check_date'],
+            },
+          )
+          .toList();
 
-      final processedReports = reports.map((report) => {
-        ...report,
-        'activity_type': 'report', // เป็นการแจ้งปัญหา
-        'date': report['report_date'],
-        'status': report['status'] ?? 'ชำรุด', // ถ้าไม่มีสถานะ ให้ถือว่าชำรุด (เพราะแจ้งซ่อม)
-        'note': report['issue_detail'], // map issue_detail -> note
-      }).toList();
+      final processedReports = reports
+          .map(
+            (report) => {
+              ...report,
+              'activity_type': 'report', // เป็นการแจ้งปัญหา
+              'date': report['report_date'],
+              'status':
+                  report['status'] ??
+                  'ชำรุด', // ถ้าไม่มีสถานะ ให้ถือว่าชำรุด (เพราะแจ้งซ่อม)
+              'note': report['issue_detail'], // map issue_detail -> note
+            },
+          )
+          .toList();
 
       // รวมกัน
-      List<Map<String, dynamic>> allActivities = [...processedLogs, ...processedReports];
+      List<Map<String, dynamic>> allActivities = [
+        ...processedLogs,
+        ...processedReports,
+      ];
 
       // เรียงลำดับตามวันที่ (ล่าสุดขึ้นก่อน)
       allActivities.sort((a, b) {
-        final dateA = DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(2000);
-        final dateB = DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(2000);
+        final dateA =
+            DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(2000);
+        final dateB =
+            DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(2000);
         return dateB.compareTo(dateA);
       });
 
@@ -186,27 +209,27 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
               ),
             )
           : errorMessage != null
-              ? _buildErrorState()
-              : checkLogs.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      color: const Color(0xFF9A2C2C), // Red refresh
-                      onRefresh: _loadActivityHistory,
-                      child: SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildSummarySection(),
-                            const SizedBox(height: 20),
-                            _buildFilterSection(),
-                            const SizedBox(height: 16),
-                            _buildTimelineSection(),
-                          ],
-                        ),
-                      ),
-                    ),
+          ? _buildErrorState()
+          : checkLogs.isEmpty
+          ? _buildEmptyState()
+          : RefreshIndicator(
+              color: const Color(0xFF9A2C2C), // Red refresh
+              onRefresh: _loadActivityHistory,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSummarySection(),
+                    const SizedBox(height: 20),
+                    _buildFilterSection(),
+                    const SizedBox(height: 16),
+                    _buildTimelineSection(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -218,10 +241,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
       centerTitle: true,
       title: const Text(
         'ประวัติการดำเนินการ',
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 20,
-        ),
+        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
       ),
       flexibleSpace: Container(
         decoration: const BoxDecoration(
@@ -323,13 +343,13 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     );
   }
 
-
   Widget _buildSummaryCard(
-    String label, 
-    String value, 
-    IconData icon, 
-    {Color? iconColor, required Color textColor}
-  ) {
+    String label,
+    String value,
+    IconData icon, {
+    Color? iconColor,
+    required Color textColor,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -339,9 +359,9 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
       child: Row(
         children: [
           Icon(
-            icon, 
+            icon,
             color: iconColor ?? const Color(0xFF9A2C2C), // Default to Theme Red
-            size: 28
+            size: 28,
           ),
           const SizedBox(width: 12),
           Column(
@@ -368,7 +388,6 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
       ),
     );
   }
-
 
   Widget _buildFilterSection() {
     return Container(
@@ -403,10 +422,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
               child: Row(
                 children: filterOptions.map((filter) {
                   final isSelected = selectedFilter == filter;
-                  final statusInfo = filter == 'ทั้งหมด' 
-                      ? {'color': const Color(0xFF5593E4)}
-                      : _getStatusInfo(filter);
-                  
+
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -431,8 +447,12 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                           filter,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                            color: isSelected ? Colors.white : Colors.grey.shade700,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.grey.shade700,
                           ),
                         ),
                       ),
@@ -449,7 +469,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
   Widget _buildTimelineSection() {
     final logs = filteredLogs;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -505,16 +525,20 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
     final status = item['status']?.toString() ?? 'ไม่ระบุ';
     final statusInfo = _getStatusInfo(status);
-    
+
     final assetId = item['asset_id']?.toString() ?? '-';
     // Report อาจจะส่ง field ต่างกัน
-    final assetType = item['asset_type'] ?? item['type'] ?? (isReport ? 'แจ้งซ่อม' : 'ครุภัณฑ์');
+    final assetType =
+        item['asset_type'] ??
+        item['type'] ??
+        (isReport ? 'แจ้งซ่อม' : 'ครุภัณฑ์');
     final roomName = item['room_name'] ?? '';
     final floor = item['floor']?.toString() ?? '';
     final date = _formatDate(item['date']);
-    final note = isReport 
-        ? (item['issue_detail'] ?? item['note']?.toString()) // Report ใช้ issue_detail
-        : (item['remark'] ?? item['note']?.toString());      // CheckLog ใช้ remark
+    final note = isReport
+        ? (item['issue_detail'] ??
+              item['note']?.toString()) // Report ใช้ issue_detail
+        : (item['remark'] ?? item['note']?.toString()); // CheckLog ใช้ remark
 
     return GestureDetector(
       onTap: () {
@@ -533,9 +557,9 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                   'location_id': item['location_id'] ?? 0,
                 },
                 roomName: roomName.isNotEmpty
-                    ? (floor.isNotEmpty 
-                        ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})'
-                        : roomName)
+                    ? (floor.isNotEmpty
+                          ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})'
+                          : roomName)
                     : 'ไม่ระบุห้อง',
               ),
             ),
@@ -560,8 +584,12 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isReport ? Colors.red.shade50 : (statusInfo['bgColor'] as Color),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                color: isReport
+                    ? Colors.red.shade50
+                    : (statusInfo['bgColor'] as Color),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -569,15 +597,23 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                   Row(
                     children: [
                       Icon(
-                        isReport ? Icons.report_problem : (statusInfo['icon'] as IconData),
-                        color: isReport ? Colors.red : (statusInfo['color'] as Color),
+                        isReport
+                            ? Icons.report_problem
+                            : (statusInfo['icon'] as IconData),
+                        color: isReport
+                            ? Colors.red
+                            : (statusInfo['color'] as Color),
                         size: 20,
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        isReport ? 'แจ้งปัญหา' : (statusInfo['label'] as String),
+                        isReport
+                            ? 'แจ้งปัญหา'
+                            : (statusInfo['label'] as String),
                         style: TextStyle(
-                          color: isReport ? Colors.red : (statusInfo['color'] as Color),
+                          color: isReport
+                              ? Colors.red
+                              : (statusInfo['color'] as Color),
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
@@ -586,10 +622,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                   ),
                   Text(
                     date,
-                    style: TextStyle(
-                      color: Colors.grey.shade600,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                 ],
               ),
@@ -661,10 +694,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                       ],
                     ),
                   ),
-                  Icon(
-                    Icons.chevron_right,
-                    color: Colors.grey.shade400,
-                  ),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
                 ],
               ),
             ),
@@ -705,10 +735,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
             const SizedBox(height: 8),
             Text(
               errorMessage ?? 'ไม่สามารถโหลดข้อมูลได้',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -721,7 +748,10 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF5593E4),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -764,10 +794,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
             const SizedBox(height: 8),
             Text(
               'เมื่อคุณตรวจสอบหรือเปลี่ยนสถานะอุปกรณ์\nประวัติจะแสดงที่นี่',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
               textAlign: TextAlign.center,
             ),
           ],

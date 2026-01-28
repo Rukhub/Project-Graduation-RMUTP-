@@ -16,9 +16,9 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
 
   // สถิติ
   int totalReports = 0;
-  int pendingCount = 0;    // ชำรุด = รอดำเนินการ
-  int repairingCount = 0;  // อยู่ระหว่างซ่อม = กำลังซ่อม
-  int fixedCount = 0;      // ปกติ = ซ่อมเสร็จแล้ว
+  int pendingCount = 0; // ชำรุด = รอดำเนินการ
+  int repairingCount = 0; // อยู่ระหว่างซ่อม = กำลังซ่อม
+  int fixedCount = 0; // ปกติ = ซ่อมเสร็จแล้ว
 
   @override
   void initState() {
@@ -35,7 +35,8 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     try {
       // ใช้ชื่อผู้ใช้ที่ล็อกอินอยู่
       final currentUser = ApiService().currentUser;
-      final reporterName = currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
+      final reporterName =
+          currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
 
       final data = await ApiService().getMyReports(reporterName);
 
@@ -142,24 +143,24 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : errorMessage != null
-              ? _buildErrorState()
-              : reports.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadReports,
-                      child: SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildSummarySection(),
-                            const SizedBox(height: 24),
-                            _buildReportsSection(),
-                          ],
-                        ),
-                      ),
-                    ),
+          ? _buildErrorState()
+          : reports.isEmpty
+          ? _buildEmptyState()
+          : RefreshIndicator(
+              onRefresh: _loadReports,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSummarySection(),
+                    const SizedBox(height: 24),
+                    _buildReportsSection(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -229,7 +230,12 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     );
   }
 
-  Widget _buildStatCard(String label, String value, Color color, IconData icon) {
+  Widget _buildStatCard(
+    String label,
+    String value,
+    Color color,
+    IconData icon,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -268,10 +274,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                 ),
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -287,7 +290,11 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       children: [
         Row(
           children: [
-            Icon(Icons.format_list_bulleted, color: Colors.grey.shade700, size: 20),
+            Icon(
+              Icons.format_list_bulleted,
+              color: Colors.grey.shade700,
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Text(
               'รายการแจ้งปัญหา',
@@ -337,7 +344,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     final issueDetail = report['issue_detail']?.toString() ?? '-';
     final reportDate = _formatDate(report['report_date']);
     final imageUrl = report['image_url']?.toString();
-    
+
     // ข้อมูลจาก API ใหม่ของโบ
     final locationId = report['location_id'];
     final roomName = report['room_name']?.toString() ?? '';
@@ -363,10 +370,10 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                 'reportReason': issueDetail,
                 'report_image': imageUrl,
               },
-              roomName: roomName.isNotEmpty 
-                  ? (floor.isNotEmpty 
-                      ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})' 
-                      : roomName)
+              roomName: roomName.isNotEmpty
+                  ? (floor.isNotEmpty
+                        ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})'
+                        : roomName)
                   : 'ไม่ระบุห้อง',
             ),
           ),
@@ -419,10 +426,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                   const Spacer(),
                   Text(
                     reportDate,
-                    style: TextStyle(
-                      color: Colors.grey.shade600,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                 ],
               ),
@@ -442,7 +446,8 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                             width: 70,
                             height: 70,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildImagePlaceholder(),
+                            errorBuilder: (context, error, stackTrace) =>
+                                _buildImagePlaceholder(),
                           )
                         : _buildImagePlaceholder(),
                   ),
@@ -454,7 +459,11 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.qr_code_2, size: 16, color: Colors.grey.shade600),
+                            Icon(
+                              Icons.qr_code_2,
+                              size: 16,
+                              color: Colors.grey.shade600,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               assetId,
@@ -506,10 +515,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                     ),
                   ),
                   // Arrow
-                  Icon(
-                    Icons.chevron_right,
-                    color: Colors.grey.shade400,
-                  ),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
                 ],
               ),
             ),
@@ -527,11 +533,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
         color: Colors.grey.shade200,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Icon(
-        Icons.image_outlined,
-        color: Colors.grey.shade400,
-        size: 30,
-      ),
+      child: Icon(Icons.image_outlined, color: Colors.grey.shade400, size: 30),
     );
   }
 
@@ -540,11 +542,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.inbox_outlined,
-            size: 80,
-            color: Colors.grey.shade400,
-          ),
+          Icon(Icons.inbox_outlined, size: 80, color: Colors.grey.shade400),
           const SizedBox(height: 16),
           Text(
             'ยังไม่มีการแจ้งปัญหา',
@@ -557,9 +555,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           const SizedBox(height: 8),
           Text(
             'เมื่อคุณแจ้งปัญหาอุปกรณ์ จะแสดงที่นี่',
-            style: TextStyle(
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -571,11 +567,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 80,
-            color: Colors.red.shade300,
-          ),
+          Icon(Icons.error_outline, size: 80, color: Colors.red.shade300),
           const SizedBox(height: 16),
           Text(
             'เกิดข้อผิดพลาด',

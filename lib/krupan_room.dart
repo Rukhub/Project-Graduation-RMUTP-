@@ -66,10 +66,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     final assets = await ApiService().getAssetsByLocation(widget.locationId);
 
     // 🔍 DEBUG: ดูว่า API ส่งอะไรมา
-    print(
+    debugPrint(
       '🔍 DEBUG: API returned ${assets.length} items for location ${widget.locationId}',
     );
-    print(
+    debugPrint(
       '🔍 DEBUG: First item = ${assets.isNotEmpty ? assets.first : "EMPTY"}',
     );
 
