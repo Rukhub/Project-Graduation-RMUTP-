@@ -1,0 +1,5 @@
+{
+  "artifactType": "ARTIFACT_TYPE_OTHER",
+  "summary": "Complete list of missing API endpoints that Bo needs to add to the backend server. Includes endpoints for assets by room, locations, dashboard stats, check logs, and user management.",
+  "updatedAt": "2026-01-28T13:29:02.155903700Z"
+}
