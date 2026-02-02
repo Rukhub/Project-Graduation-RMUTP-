@@ -1,298 +1,50 @@
-/**
- * ==========================================
- * 🚀 BACKEND FINAL STRUCTURE
- * Assets / Locations / Reports / Check-Logs / Users
- * ==========================================
- */
-
-const express = require('express');
-const mysql = require('mysql2');
-const cors = require('cors');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-const app = express();
-
 /* ==========================================
- * 1️⃣ GLOBAL CONFIG & MIDDLEWARE
+ * 🚀 GOOGLE LOGIN SYSTEM
  * ========================================== */
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const { OAuth2Client } = require('google-auth-library');
 
-// create uploads folder
-if (!fs.existsSync('./uploads')) {
-    fs.mkdirSync('./uploads');
-}
+// วาง Client ID ที่โบก๊อปมาตรงนี้เลยครับ
+const CLIENT_ID = '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com';
+const client = new OAuth2Client(CLIENT_ID);
 
-/* ==========================================
- * 2️⃣ DATABASE CONNECTION
- * ========================================== */
-const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'password123',
-    database: 'krupandb',
-    timezone: '+07:00'
-});
+app.post('/api/google-login', async (req, res) => {
+    const { idToken } = req.body;
+    try {
+        const ticket = await client.verifyIdToken({
+            idToken: idToken,
+            audience: CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { email, name } = payload;
 
-db.connect(err => {
-    if (err) return console.error('❌ DB Error:', err);
-    console.log('✅ Database Connected');
-});
-
-/* ==========================================
- * 3️⃣ FILE UPLOAD (MULTER)
- * ========================================== */
-const storage = multer.diskStorage({
-    destination: (_, __, cb) => cb(null, 'uploads/'),
-    filename: (_, file, cb) =>
-        cb(null, Date.now() + path.extname(file.originalname))
-});
-const upload = multer({ storage });
-
-/* ==========================================
- * 4️⃣ AUTH / USERS
- * ========================================== */
-app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    db.query(
-        "SELECT * FROM users WHERE username = ? AND password = ?",
-        [username, password],
-        (err, results) => {
-            if (results?.length) res.json({ user: results[0] });
-            else res.status(401).json({ message: "ล้มเหลว" });
+        // 🛡️ ส่วนที่เพิ่มเข้าไป: เช็กโดเมนอีเมล
+        if (!email.endsWith('@rmutp.ac.th')) {
+            return res.status(403).json({ 
+                success: false, 
+                message: "ขออภัย! ระบบนี้อนุญาตให้เฉพาะอีเมล @rmutp.ac.th เท่านั้น" 
+            });
         }
-    );
-});
 
-app.get('/api/users/all', (req, res) => {
-    db.query("SELECT * FROM users ORDER BY created_at DESC",
-        (err, results) => res.json(results)
-    );
-});
-
-/* ==========================================
- * 5️⃣ LOCATIONS (ROOMS)
- * ========================================== */
-app.get('/api/locations', (req, res) => {
-    db.query(
-        "SELECT * FROM locations ORDER BY floor, room_name",
-        (err, results) => res.json(results)
-    );
-});
-
-app.post('/api/locations', (req, res) => {
-    const { room_name, floor } = req.body;
-    db.query(
-        "INSERT INTO locations (room_name, floor) VALUES (?, ?)",
-        [room_name, floor],
-        () => res.json({ success: true })
-    );
-});
-
-app.put('/api/locations/:id', (req, res) => {
-    const { room_name, floor } = req.body;
-    db.query(
-        "UPDATE locations SET room_name = ?, floor = ? WHERE location_id = ?",
-        [room_name, floor, req.params.id],
-        () => res.json({ success: true })
-    );
-});
-
-app.delete('/api/locations/:id', (req, res) => {
-    db.query(
-        "DELETE FROM locations WHERE location_id = ?",
-        [req.params.id],
-        () => res.json({ success: true })
-    );
-});
-
-/* ==========================================
- * 6️⃣ ASSETS (CRUD)
- * ========================================== */
-
-// get all assets
-app.get('/api/assets', (req, res) => {
-    const sql = `
-        SELECT a.*, l.room_name, l.floor,
-        (SELECT u.fullname FROM check_logs cl 
-         JOIN users u ON cl.checker_id = u.user_id
-         WHERE cl.asset_id = a.asset_id 
-         ORDER BY cl.check_date DESC LIMIT 1) AS checker_name
-        FROM assets a
-        LEFT JOIN locations l ON a.location_id = l.location_id
-        ORDER BY a.created_at DESC
-    `;
-    db.query(sql, (err, results) => res.json(results));
-});
-
-// assets by room
-app.get('/api/assets/room/:locationId', (req, res) => {
-    db.query(
-        "SELECT * FROM assets WHERE location_id = ?",
-        [req.params.locationId],
-        (err, results) => res.json(results)
-    );
-});
-
-// create asset
-app.post('/api/assets', upload.single('image'), (req, res) => {
-    const { asset_id, asset_type, brand_model, location_id, status } = req.body;
-
-    let imageUrl = '';
-    if (req.file) {
-        imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        // ถ้าผ่านเงื่อนไขอีเมลมหาลัยแล้ว ค่อยไปเช็กใน DB ต่อ
+        db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
+            if (results?.length > 0) {
+                res.json({ success: true, user: results[0] });
+            } else {
+                const newUser = { 
+                    username: email, 
+                    fullname: name, 
+                    role: 'user', 
+                    status: 'approved',
+                    created_at: new Date()
+                };
+                db.query("INSERT INTO users SET ?", newUser, (err, result) => {
+                    if (err) return res.status(500).json(err);
+                    res.json({ success: true, user: { user_id: result.insertId, ...newUser } });
+                });
+            }
+        });
+    } catch (error) {
+        console.error("❌ Google Auth Fail:", error);
+        res.status(401).json({ success: false, message: "Google Login Failed" });
     }
-
-    const sql = `
-        INSERT INTO assets 
-        (asset_id, asset_type, brand_model, location_id, status, image_url)
-        VALUES (?, ?, ?, ?, ?, ?)
-    `;
-
-    db.query(
-        sql,
-        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', imageUrl],
-        err => {
-            if (err) return res.status(500).json(err);
-            res.json({ success: true, image_url: imageUrl });
-        }
-    );
-});
-
-// update asset
-app.put('/api/assets/:id', upload.single('image'), (req, res) => {
-    const { asset_type, brand_model, location_id, status, image_url } = req.body;
-
-    let finalImage = image_url;
-    if (req.file) {
-        finalImage = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    }
-
-    db.query(
-        `UPDATE assets SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=? 
-         WHERE asset_id=?`,
-        [asset_type, brand_model, location_id, status, finalImage, req.params.id],
-        () => res.json({ success: true })
-    );
-});
-
-// ⭐ แก้ปัญหา 404 POST /api/upload
-app.post('/api/upload', upload.single('image'), (req, res) => {
-    if (!req.file) return res.status(400).json({ message: "ไม่ได้เลือกรูปภาพ" });
-    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    res.json({ success: true, image_url: imageUrl });
-});
-
-// delete asset
-app.delete('/api/assets/:id', (req, res) => {
-    db.query(
-        "DELETE FROM assets WHERE asset_id = ?",
-        [req.params.id],
-        () => res.json({ success: true })
-    );
-});
-
-/* ==========================================
- * 7️⃣ REPORTS (แจ้งซ่อม)
- * ========================================== */
-/* ==========================================
- * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำของรัก
- * ========================================== */
-app.post('/api/reports', upload.single('image'), (req, res) => {
-    // 1. เพิ่ม image_url เข้ามาในตัวรับค่า (Destructuring)
-    const { asset_id, reporter_name, fullname, issue_detail, details, image_url } = req.body;
-
-    const reporter = reporter_name || fullname || 'ไม่ระบุชื่อ';
-    const detail = issue_detail || details || 'ไม่ได้ระบุรายละเอียด';
-
-    // 2. ปรับการดึง URL รูปภาพให้ฉลาดขึ้น
-    let imageUrl = image_url || ''; 
-    if (!imageUrl && req.file) {
-        imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    }
-
-    // 3. เพิ่ม Error Handling เพื่อเช็กว่าบันทึกสำเร็จไหม
-    const sql = `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date) 
-                 VALUES (?, ?, ?, ?, NOW())`;
-
-    db.query(sql, [asset_id, reporter, detail, imageUrl], (err) => {
-        if (err) {
-            console.error("❌ บันทึกไม่สำเร็จ:", err);
-            return res.status(500).json({ success: false, message: 'บันทึกไม่สำเร็จ' });
-        }
-        console.log(`📢 รับแจ้งซ่อมใหม่จาก: ${reporter}`);
-        res.json({ success: true });
-    });
-});
-
-app.get('/api/assets/:assetId/reports', (req, res) => {
-    db.query(
-        "SELECT r.*, r.reporter_name AS fullname FROM reports r WHERE r.asset_id = ? ORDER BY r.report_date DESC",
-        [req.params.assetId],
-        (err, results) => res.json(results)
-    );
-});
-
-app.get('/api/reports', (req, res) => {
-const sql = `
-    SELECT r.*, r.reporter_name AS fullname, a.asset_type, a.brand_model, l.room_name
-    FROM reports r
-    JOIN assets a ON r.asset_id = a.asset_id
-    LEFT JOIN locations l ON a.location_id = l.location_id
-    ORDER BY r.report_date DESC
-`;
-    db.query(sql, (err, results) => res.json(results));
-});
-
-app.delete('/api/reports/:id', (req, res) => {
-    db.query(
-        "DELETE FROM reports WHERE report_id = ?",
-        [req.params.id],
-        () => res.json({ success: true })
-    );
-});
-
-/* ==========================================
- * 8️⃣ CHECK LOGS
- * ========================================== */
-app.post('/api/check-logs', (req, res) => {
-    const { asset_id, checker_id, result_status, remark, image_url } = req.body;
-
-    db.query(
-        `INSERT INTO check_logs 
-         (asset_id, checker_id, result_status, remark, image_url, check_date)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [asset_id, checker_id, result_status, remark, image_url],
-        () => {
-            db.query(
-                "UPDATE assets SET status=? WHERE asset_id=?",
-                [result_status, asset_id],
-                () => res.json({ success: true })
-            );
-        }
-    );
-});
-
-/* ==========================================
- * 9️⃣ DASHBOARD
- * ========================================== */
-app.get('/api/dashboard-stats', (req, res) => {
-    db.query(
-        `SELECT COUNT(*) total,
-         SUM(status='ปกติ') normal,
-         SUM(status='ชำรุด') damaged,
-         SUM(status='รอตรวจสอบ') pending
-         FROM assets`,
-        (err, results) => res.json(results[0])
-    );
-});
-
-/* ==========================================
- * 🔟 SERVER START
- * ========================================== */
-app.listen(3000, () => {
-    console.log('🚀 Backend running on port 3000');
 });
