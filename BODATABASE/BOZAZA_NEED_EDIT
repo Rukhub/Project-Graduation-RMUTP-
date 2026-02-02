@@ -1,124 +1,287 @@
-// ==========================================
-// --- API ที่ขาดหายไป (ให้โบเพิ่มตรงนี้) ---
-// ==========================================
+/**
+ * ==========================================
+ * 🚀 BACKEND FINAL STRUCTURE
+ * Assets / Locations / Reports / Check-Logs / Users
+ * ==========================================
+ */
 
-// ⭐ 1. ดึงครุภัณฑ์ตามห้อง (สำคัญมาก! นี่คือตัวที่หาย)
-app.get('/api/assets/room/:locationId', (req, res) => {
-    const locationId = req.params.locationId;
-    const sql = `
-        SELECT a.*, l.room_name, l.floor,
-        (SELECT u.fullname FROM check_logs cl JOIN users u ON cl.checker_id = u.user_id 
-         WHERE cl.asset_id = a.asset_id ORDER BY cl.check_date DESC LIMIT 1) as checker_name
-        FROM assets a 
-        LEFT JOIN locations l ON a.location_id = l.location_id 
-        WHERE a.location_id = ?
-        ORDER BY a.created_at DESC`;
-    db.query(sql, [locationId], (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+const express = require('express');
+const mysql = require('mysql2');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+
+/* ==========================================
+ * 1️⃣ GLOBAL CONFIG & MIDDLEWARE
+ * ========================================== */
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// create uploads folder
+if (!fs.existsSync('./uploads')) {
+    fs.mkdirSync('./uploads');
+}
+
+/* ==========================================
+ * 2️⃣ DATABASE CONNECTION
+ * ========================================== */
+const db = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: 'password123',
+    database: 'krupandb',
+    timezone: '+07:00'
 });
 
-// ⭐ 2. ดึงรายการห้องทั้งหมด
+db.connect(err => {
+    if (err) return console.error('❌ DB Error:', err);
+    console.log('✅ Database Connected');
+});
+
+/* ==========================================
+ * 3️⃣ FILE UPLOAD (MULTER)
+ * ========================================== */
+const storage = multer.diskStorage({
+    destination: (_, __, cb) => cb(null, 'uploads/'),
+    filename: (_, file, cb) =>
+        cb(null, Date.now() + path.extname(file.originalname))
+});
+const upload = multer({ storage });
+
+/* ==========================================
+ * 4️⃣ AUTH / USERS
+ * ========================================== */
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    db.query(
+        "SELECT * FROM users WHERE username = ? AND password = ?",
+        [username, password],
+        (err, results) => {
+            if (results?.length) res.json({ user: results[0] });
+            else res.status(401).json({ message: "ล้มเหลว" });
+        }
+    );
+});
+
+app.get('/api/users/all', (req, res) => {
+    db.query("SELECT * FROM users ORDER BY created_at DESC",
+        (err, results) => res.json(results)
+    );
+});
+
+/* ==========================================
+ * 5️⃣ LOCATIONS (ROOMS)
+ * ========================================== */
 app.get('/api/locations', (req, res) => {
-    const sql = "SELECT * FROM locations ORDER BY floor, room_name";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+    db.query(
+        "SELECT * FROM locations ORDER BY floor, room_name",
+        (err, results) => res.json(results)
+    );
 });
 
-// ⭐ 3. เพิ่มห้องใหม่
 app.post('/api/locations', (req, res) => {
     const { room_name, floor } = req.body;
-    const sql = "INSERT INTO locations (room_name, floor) VALUES (?, ?)";
-    db.query(sql, [room_name, floor], (err, result) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ success: true, location_id: result.insertId });
-    });
+    db.query(
+        "INSERT INTO locations (room_name, floor) VALUES (?, ?)",
+        [room_name, floor],
+        () => res.json({ success: true })
+    );
 });
 
-// ⭐ 4. Dashboard สถิติ
-app.get('/api/dashboard/stats', (req, res) => {
+app.put('/api/locations/:id', (req, res) => {
+    const { room_name, floor } = req.body;
+    db.query(
+        "UPDATE locations SET room_name = ?, floor = ? WHERE location_id = ?",
+        [room_name, floor, req.params.id],
+        () => res.json({ success: true })
+    );
+});
+
+app.delete('/api/locations/:id', (req, res) => {
+    db.query(
+        "DELETE FROM locations WHERE location_id = ?",
+        [req.params.id],
+        () => res.json({ success: true })
+    );
+});
+
+/* ==========================================
+ * 6️⃣ ASSETS (CRUD)
+ * ========================================== */
+
+// get all assets
+app.get('/api/assets', (req, res) => {
     const sql = `
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 'ปกติ' THEN 1 ELSE 0 END) as normal,
-            SUM(CASE WHEN status = 'ชำรุด' THEN 1 ELSE 0 END) as damaged,
-            SUM(CASE WHEN status = 'อยู่ระหว่างซ่อม' THEN 1 ELSE 0 END) as pending
-        FROM assets`;
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results[0]);
-    });
+        SELECT a.*, l.room_name, l.floor,
+        (SELECT u.fullname FROM check_logs cl 
+         JOIN users u ON cl.checker_id = u.user_id
+         WHERE cl.asset_id = a.asset_id 
+         ORDER BY cl.check_date DESC LIMIT 1) AS checker_name
+        FROM assets a
+        LEFT JOIN locations l ON a.location_id = l.location_id
+        ORDER BY a.created_at DESC
+    `;
+    db.query(sql, (err, results) => res.json(results));
 });
 
-// ⭐ 5. อัพเดทสถานะครุภัณฑ์
-app.put('/api/assets/:assetId/status', (req, res) => {
-    const { assetId } = req.params;
-    const { status } = req.body;
-    const sql = "UPDATE assets SET status = ? WHERE asset_id = ?";
-    db.query(sql, [status, assetId], (err) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ success: true });
-    });
+// assets by room
+app.get('/api/assets/room/:locationId', (req, res) => {
+    db.query(
+        "SELECT * FROM assets WHERE location_id = ?",
+        [req.params.locationId],
+        (err, results) => res.json(results)
+    );
 });
 
-// ⭐ 6. บันทึกการตรวจสอบ (Check Log)
+// create asset
+app.post('/api/assets', upload.single('image'), (req, res) => {
+    const { asset_id, asset_type, brand_model, location_id, status } = req.body;
+
+    let imageUrl = '';
+    if (req.file) {
+        imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    }
+
+    const sql = `
+        INSERT INTO assets 
+        (asset_id, asset_type, brand_model, location_id, status, image_url)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+    db.query(
+        sql,
+        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', imageUrl],
+        err => {
+            if (err) return res.status(500).json(err);
+            res.json({ success: true, image_url: imageUrl });
+        }
+    );
+});
+
+// update asset
+app.put('/api/assets/:id', upload.single('image'), (req, res) => {
+    const { asset_type, brand_model, location_id, status, image_url } = req.body;
+
+    let finalImage = image_url;
+    if (req.file) {
+        finalImage = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    }
+
+    db.query(
+        `UPDATE assets SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=? 
+         WHERE asset_id=?`,
+        [asset_type, brand_model, location_id, status, finalImage, req.params.id],
+        () => res.json({ success: true })
+    );
+});
+
+// ⭐ แก้ปัญหา 404 POST /api/upload
+app.post('/api/upload', upload.single('image'), (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "ไม่ได้เลือกรูปภาพ" });
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    res.json({ success: true, image_url: imageUrl });
+});
+
+// delete asset
+app.delete('/api/assets/:id', (req, res) => {
+    db.query(
+        "DELETE FROM assets WHERE asset_id = ?",
+        [req.params.id],
+        () => res.json({ success: true })
+    );
+});
+
+/* ==========================================
+ * 7️⃣ REPORTS (แจ้งซ่อม)
+ * ========================================== */
+app.post('/api/reports', upload.single('image'), (req, res) => {
+    const { asset_id, reporter_name, fullname, issue_detail, details } = req.body;
+
+    const reporter = reporter_name || fullname || 'ไม่ระบุชื่อ';
+    const detail = issue_detail || details || '';
+
+    let imageUrl = '';
+    if (req.file) {
+        imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    }
+
+    db.query(
+        `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date)
+         VALUES (?, ?, ?, ?, NOW())`,
+        [asset_id, reporter, detail, imageUrl],
+        () => res.json({ success: true })
+    );
+});
+
+app.get('/api/assets/:assetId/reports', (req, res) => {
+    db.query(
+        "SELECT r.*, r.reporter_name AS fullname FROM reports r WHERE r.asset_id = ? ORDER BY r.report_date DESC",
+        [req.params.assetId],
+        (err, results) => res.json(results)
+    );
+});
+
+app.get('/api/reports', (req, res) => {
+const sql = `
+    SELECT r.*, r.reporter_name AS fullname, a.asset_type, a.brand_model, l.room_name
+    FROM reports r
+    JOIN assets a ON r.asset_id = a.asset_id
+    LEFT JOIN locations l ON a.location_id = l.location_id
+    ORDER BY r.report_date DESC
+`;
+    db.query(sql, (err, results) => res.json(results));
+});
+
+app.delete('/api/reports/:id', (req, res) => {
+    db.query(
+        "DELETE FROM reports WHERE report_id = ?",
+        [req.params.id],
+        () => res.json({ success: true })
+    );
+});
+
+/* ==========================================
+ * 8️⃣ CHECK LOGS
+ * ========================================== */
 app.post('/api/check-logs', (req, res) => {
-    const { asset_id, checker_id, checker_name, status, note, image_url } = req.body;
-    const sql = "INSERT INTO check_logs (asset_id, checker_id, checker_name, status, note, image_url) VALUES (?, ?, ?, ?, ?, ?)";
-    db.query(sql, [asset_id, checker_id, checker_name, status, note, image_url], (err) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ success: true });
-    });
+    const { asset_id, checker_id, result_status, remark, image_url } = req.body;
+
+    db.query(
+        `INSERT INTO check_logs 
+         (asset_id, checker_id, result_status, remark, image_url, check_date)
+         VALUES (?, ?, ?, ?, ?, NOW())`,
+        [asset_id, checker_id, result_status, remark, image_url],
+        () => {
+            db.query(
+                "UPDATE assets SET status=? WHERE asset_id=?",
+                [result_status, asset_id],
+                () => res.json({ success: true })
+            );
+        }
+    );
 });
 
-// ⭐ 7. ดึงประวัติการตรวจสอบ
-app.get('/api/check-logs/:assetId', (req, res) => {
-    const sql = `
-        SELECT cl.*, u.fullname 
-        FROM check_logs cl 
-        LEFT JOIN users u ON cl.checker_id = u.user_id 
-        WHERE cl.asset_id = ? 
-        ORDER BY cl.check_date DESC`;
-    db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+/* ==========================================
+ * 9️⃣ DASHBOARD
+ * ========================================== */
+app.get('/api/dashboard-stats', (req, res) => {
+    db.query(
+        `SELECT COUNT(*) total,
+         SUM(status='ปกติ') normal,
+         SUM(status='ชำรุด') damaged,
+         SUM(status='รอตรวจสอบ') pending
+         FROM assets`,
+        (err, results) => res.json(results[0])
+    );
 });
 
-// ⭐ 8. ดึง Reports ของ Asset
-app.get('/api/reports/asset/:assetId', (req, res) => {
-    const sql = "SELECT * FROM reports WHERE asset_id = ? ORDER BY report_date DESC";
-    db.query(sql, [req.params.assetId], (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
-});
-
-// ⭐ 9. จัดการผู้ใช้ (สำหรับ Admin)
-app.get('/api/users', (req, res) => {
-    const sql = "SELECT * FROM users ORDER BY created_at DESC";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
-});
-
-app.put('/api/users/approve/:userId', (req, res) => {
-    const sql = "UPDATE users SET is_approved = 1 WHERE user_id = ?";
-    db.query(sql, [req.params.userId], (err) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ success: true });
-    });
-});
-
-app.put('/api/users/role/:userId', (req, res) => {
-    const { role } = req.body;
-    const sql = "UPDATE users SET role = ? WHERE user_id = ?";
-    db.query(sql, [role, req.params.userId], (err) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ success: true });
-    });
+/* ==========================================
+ * 🔟 SERVER START
+ * ========================================== */
+app.listen(3000, () => {
+    console.log('🚀 Backend running on port 3000');
 });
