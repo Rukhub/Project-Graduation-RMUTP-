@@ -1,50 +1,66 @@
-/* ==========================================
- * 🚀 GOOGLE LOGIN SYSTEM
- * ========================================== */
-const { OAuth2Client } = require('google-auth-library');
-
-// วาง Client ID ที่โบก๊อปมาตรงนี้เลยครับ
-const CLIENT_ID = '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com';
-const client = new OAuth2Client(CLIENT_ID);
-
-app.post('/api/google-login', async (req, res) => {
-    const { idToken } = req.body;
+// เปลี่ยนจาก app.post('/api/google-login', ...)
+// เป็น
+app.post('/api/auth/google-login', async (req, res) => {
+    const { idToken, google_id, email, fullname, photo_url } = req.body;
+    
     try {
-        const ticket = await client.verifyIdToken({
-            idToken: idToken,
-            audience: CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        const { email, name } = payload;
+        let userEmail, userName;
+        
+        // ถ้าส่ง idToken มา (Web)
+        if (idToken) {
+            const ticket = await client.verifyIdToken({
+                idToken: idToken,
+                audience: CLIENT_ID,
+            });
+            const payload = ticket.getPayload();
+            userEmail = payload.email;
+            userName = payload.name;
+        } 
+        // ถ้าส่ง email มาตรงๆ (Mobile) ⭐ ส่วนนี้เพิ่มใหม่
+        else if (email) {
+            userEmail = email;
+            userName = fullname;
+        } else {
+            return res.status(400).json({ 
+                success: false, 
+                message: "ข้อมูลไม่ครบถ้วน" 
+            });
+        }
 
-        // 🛡️ ส่วนที่เพิ่มเข้าไป: เช็กโดเมนอีเมล
-        if (!email.endsWith('@rmutp.ac.th')) {
+        // เช็คโดเมน @rmutp.ac.th (ส่วนนี้โบทำถูกแล้ว เก็บไว้)
+        if (!userEmail.endsWith('@rmutp.ac.th')) {
             return res.status(403).json({ 
                 success: false, 
                 message: "ขออภัย! ระบบนี้อนุญาตให้เฉพาะอีเมล @rmutp.ac.th เท่านั้น" 
             });
         }
 
-        // ถ้าผ่านเงื่อนไขอีเมลมหาลัยแล้ว ค่อยไปเช็กใน DB ต่อ
-        db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
+        // เช็กใน Database (ส่วนนี้เหมือนเดิม)
+        db.query("SELECT * FROM users WHERE username = ?", [userEmail], (err, results) => {
             if (results?.length > 0) {
                 res.json({ success: true, user: results[0] });
             } else {
                 const newUser = { 
-                    username: email, 
-                    fullname: name, 
+                    username: userEmail, 
+                    fullname: userName, 
                     role: 'user', 
                     status: 'approved',
                     created_at: new Date()
                 };
                 db.query("INSERT INTO users SET ?", newUser, (err, result) => {
                     if (err) return res.status(500).json(err);
-                    res.json({ success: true, user: { user_id: result.insertId, ...newUser } });
+                    res.json({ 
+                        success: true, 
+                        user: { user_id: result.insertId, ...newUser } 
+                    });
                 });
             }
         });
     } catch (error) {
         console.error("❌ Google Auth Fail:", error);
-        res.status(401).json({ success: false, message: "Google Login Failed" });
+        res.status(401).json({ 
+            success: false, 
+            message: "Google Login Failed: " + error.message 
+        });
     }
 });
