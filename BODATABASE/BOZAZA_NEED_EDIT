@@ -113,19 +113,25 @@ app.delete('/api/locations/:id', (req, res) => {
  * 6️⃣ ASSETS (CRUD)
  * ========================================== */
 
-// get all assets
+// ดึงข้อมูลครุภัณฑ์ทั้งหมด (แบบสมบูรณ์เพื่อรัก)
 app.get('/api/assets', (req, res) => {
     const sql = `
         SELECT a.*, l.room_name, l.floor,
-        (SELECT u.fullname FROM check_logs cl 
-         JOIN users u ON cl.checker_id = u.user_id
+        -- ดึงชื่อผู้สร้าง (เปรียบเทียบตัวเลขตรงๆ ได้เลยหลังจากแก้ DB)
+        (SELECT u.fullname FROM users u WHERE u.user_id = a.created_by LIMIT 1) AS created_by_name,
+        -- ดึงชื่อผู้ตรวจสอบล่าสุด
+        (SELECT u2.fullname FROM check_logs cl 
+         JOIN users u2 ON cl.checker_id = u2.user_id
          WHERE cl.asset_id = a.asset_id 
          ORDER BY cl.check_date DESC LIMIT 1) AS checker_name
         FROM assets a
         LEFT JOIN locations l ON a.location_id = l.location_id
         ORDER BY a.created_at DESC
     `;
-    db.query(sql, (err, results) => res.json(results));
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
 });
 
 // assets by room
@@ -137,27 +143,29 @@ app.get('/api/assets/room/:locationId', (req, res) => {
     );
 });
 
-// create asset
+// create asset (รองรับทั้งแบบอัปโหลดไฟล์ และแบบส่ง URL แยกตามที่รักบอก)
 app.post('/api/assets', upload.single('image'), (req, res) => {
-    const { asset_id, asset_type, brand_model, location_id, status } = req.body;
+    // รับ created_by จากรัก (ซึ่งรักต้องส่งชื่อ 'Admin Bo' หรือ email มาให้โบ)
+    const { asset_id, asset_type, brand_model, location_id, status, created_by, image_url } = req.body;
 
-    let imageUrl = '';
+    let finalImageUrl = image_url || ''; 
     if (req.file) {
-        imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
 
     const sql = `
         INSERT INTO assets 
-        (asset_id, asset_type, brand_model, location_id, status, image_url)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (asset_id, asset_type, brand_model, location_id, status, image_url, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
+    // บันทึกค่า created_by ที่ได้จากแอป ถ้าแอปไม่ส่งมาค่อยใช้ 'System'
     db.query(
-        sql,
-        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', imageUrl],
-        err => {
+        sql, 
+        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', finalImageUrl, created_by || 'Admin_Bo'], 
+        (err, result) => {
             if (err) return res.status(500).json(err);
-            res.json({ success: true, image_url: imageUrl });
+            res.json({ success: true });
         }
     );
 });
@@ -234,22 +242,18 @@ app.get('/api/assets/:assetId/reports', (req, res) => {
 });
 
 app.get('/api/reports', (req, res) => {
-const sql = `
-    SELECT r.*, r.reporter_name AS fullname, a.asset_type, a.brand_model, l.room_name
-    FROM reports r
-    JOIN assets a ON r.asset_id = a.asset_id
-    LEFT JOIN locations l ON a.location_id = l.location_id
-    ORDER BY r.report_date DESC
-`;
-    db.query(sql, (err, results) => res.json(results));
-});
-
-app.delete('/api/reports/:id', (req, res) => {
-    db.query(
-        "DELETE FROM reports WHERE report_id = ?",
-        [req.params.id],
-        () => res.json({ success: true })
-    );
+    const sql = `
+        SELECT r.*, a.asset_type, a.brand_model, l.room_name,
+               (SELECT u.fullname FROM users u WHERE u.username = r.reporter_name OR u.fullname = r.reporter_name LIMIT 1) AS reporter_display_name
+        FROM reports r
+        JOIN assets a ON r.asset_id = a.asset_id
+        LEFT JOIN locations l ON a.location_id = l.location_id
+        ORDER BY r.report_date DESC
+    `;
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
 });
 
 /* ==========================================
@@ -295,9 +299,29 @@ app.delete('/api/check-logs/:id', (req, res) => {
     db.query("DELETE FROM check_logs WHERE log_id = ?", [req.params.id], () => res.json({ success: true }));
 });
 
-// ⭐ [เพิ่ม] สำหรับลบรายการแจ้งซ่อม (Delete Report)
+// ลบรายการแจ้งซ่อม (Delete Report)
 app.delete('/api/reports/:id', (req, res) => {
-    db.query("DELETE FROM reports WHERE report_id = ?", [req.params.id], () => res.json({ success: true }));
+    const reportId = req.params.id;
+    db.query("DELETE FROM reports WHERE report_id = ?", [reportId], (err) => {
+        if (err) return res.status(500).json(err);
+        console.log(`🗑️ ลบประวัติการแจ้งซ่อม ID: ${reportId}`);
+        res.json({ success: true });
+    });
+});
+
+// ดึงประวัติการตรวจ "ทั้งหมด" สำหรับ Admin
+app.get('/api/check-logs/all', (req, res) => {
+    const sql = `
+        SELECT cl.*, u.fullname AS checker_name, a.asset_type, a.brand_model
+        FROM check_logs cl
+        JOIN users u ON cl.checker_id = u.user_id
+        JOIN assets a ON cl.asset_id = a.asset_id
+        ORDER BY cl.check_date DESC
+    `;
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
 });
 
 /* ==========================================
