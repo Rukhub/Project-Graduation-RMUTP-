@@ -271,10 +271,12 @@ app.get('/api/assets/:assetId/reports', (req, res) => {
         (err, results) => res.json(results)
     );
 });
+// แก้ไขใน Section 7: GET /api/reports
 app.get('/api/reports', (req, res) => {
     const sql = `
         SELECT r.*, a.asset_type, a.brand_model, l.room_name,
-               (SELECT u.fullname FROM users u WHERE u.username = r.reporter_name OR u.fullname = r.reporter_name LIMIT 1) AS reporter_display_name
+               r.status AS report_status, -- 🔥 ดึงสถานะเฉพาะของใบแจ้งซ่อมนี้
+               a.status AS asset_current_status -- ดึงสถานะปัจจุบันของตัวเครื่องมาดูคู่กัน
         FROM reports r
         JOIN assets a ON r.asset_id = a.asset_id
         LEFT JOIN locations l ON a.location_id = l.location_id
@@ -285,6 +287,7 @@ app.get('/api/reports', (req, res) => {
         res.json(results);
     });
 });
+
 // ✅ [แก้ไข] ดึงประวัติการรายงาน เฉพาะของ User คนนั้นๆ + ดึง Status มาด้วย
 app.get('/api/reports/user/:name', (req, res) => {
     const userName = req.params.name;
@@ -429,7 +432,9 @@ app.post('/api/google-login', async (req, res) => {
                 const newUser = { 
                     username: email,
                     email: email, 
-                    fullname: name, 
+                    fullname: name,
+                    google_id: sub,    // 🔥 เอากลับมาแล้ว!
+                    photo_url: picture, // 🔥 รูปโปรไฟล์ก็กลับมาแล้ว!
                     role: 'user',
                     created_at: new Date()
                 };
