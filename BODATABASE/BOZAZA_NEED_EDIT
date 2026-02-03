@@ -194,7 +194,10 @@ app.post('/api/locations', (req, res) => {
     db.query(
         "INSERT INTO locations (room_name, floor) VALUES (?, ?)",
         [room_name, floor],
-        () => res.json({ success: true })
+        (err, result) => {
+            if (err) return res.status(500).json(err);
+            res.json({ success: true, location_id: result.insertId });
+        }
     );
 });
 app.put('/api/locations/:id', (req, res) => {
