@@ -194,7 +194,10 @@ app.post('/api/locations', (req, res) => {
     db.query(
         "INSERT INTO locations (room_name, floor) VALUES (?, ?)",
         [room_name, floor],
-        () => res.json({ success: true })
+        (err, result) => {
+            if (err) return res.status(500).json(err);
+            res.json({ success: true, location_id: result.insertId });
+        }
     );
 });
 app.put('/api/locations/:id', (req, res) => {
@@ -246,24 +249,21 @@ app.get('/api/assets/room/:locationId', (req, res) => {
 app.post('/api/assets', upload.single('image'), (req, res) => {
     // 1. รับค่าจากหน้าบ้าน (Destructuring)
     const { asset_id, asset_type, brand_model, location_id, status, created_by, image_url } = req.body;
-    
     // 2. จัดการเรื่องรูปภาพ
-    let finalImageUrl = image_url || ''; 
+    let finalImageUrl = image_url || '';
     if (req.file) {
         finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-
     // 3. คำสั่ง SQL (เช็กชื่อคอลัมน์ให้ตรงกับ DB โบนะ)
     const sql = `
         INSERT INTO assets 
         (asset_id, asset_type, brand_model, location_id, status, image_url, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
-
     // 4. ยิง Query (ต้องอยู่ในปีกกาของ app.post เท่านั้น!)
     db.query(
-        sql, 
-        [asset_id, asset_type, brand_model, location_id, status || 'ปกติ', finalImageUrl, created_by || 'Admin'], 
+        sql,
+        [asset_id, asset_type, brand_model, location_id, status || 'ปกติ', finalImageUrl, created_by || 'Admin'],
         (err, result) => {
             if (err) {
                 console.error("❌ SQL Error Detail:", err.sqlMessage); // ถ้าเพิ่มไม่ได้ ดูจอดำตรงนี้
@@ -359,7 +359,7 @@ app.get('/api/reports', (req, res) => {
 app.get('/api/reports/user/:name', (req, res) => {
     const userName = req.params.name;
     const sql = `
-        SELECT r.*, a.asset_type, a.brand_model, r.status, l.room_name 
+        SELECT r.*, a.asset_type, a.brand_model, r.status, l.room_name, a.status AS asset_current_status 
         FROM reports r
         JOIN assets a ON r.asset_id = a.asset_id
         LEFT JOIN locations l ON a.location_id = l.location_id
