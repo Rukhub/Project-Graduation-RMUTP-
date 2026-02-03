@@ -93,26 +93,21 @@ app.put('/api/users/approve-all', (req, res) => {
         (err, result) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
             console.log(`✅ อนุมัติ User ทั้งหมด ${result.affectedRows} คนสำเร็จ`);
-            res.json({ success: true, message: `อนุมัติผู้ใช้ ${result.affectedRows} คนสำเร็จ` });
+            res.json({ success: true, message: `อนุมัติผู้ใช้ทั้งหมดเรียบร้อยจ้า` });
         }
     );
 });
 // ✅ อนุมัติ User ที่เลือก (รับ Array ของ user_ids)
 app.put('/api/users/approve-selected', (req, res) => {
-    const { userIds } = req.body;
+    const { userIds } = req.body; // รับ Array [22, 23, 24] มาจากรัก
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-        return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User ที่จะอนุมัติ' });
+        return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User' });
     }
     const placeholders = userIds.map(() => '?').join(',');
-    db.query(
-        `UPDATE users SET is_approved = 1 WHERE user_id IN (${placeholders})`,
-        userIds,
-        (err, result) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            console.log(`✅ อนุมัติ User ที่เลือก ${result.affectedRows} คนสำเร็จ`);
-            res.json({ success: true, message: `อนุมัติผู้ใช้ ${result.affectedRows} คนสำเร็จ` });
-        }
-    );
+    db.query(`UPDATE users SET is_approved = 1 WHERE user_id IN (${placeholders})`, userIds, (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, message: `อนุมัติ ${result.affectedRows} คนเรียบร้อยจ้า` });
+    });
 });
 // อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
 app.put('/api/users/:id/role', (req, res) => {
