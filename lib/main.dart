@@ -436,12 +436,25 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // 2. ส่งข้อมูลไปยัง Backend
+      // ⭐ 2. ดึง ID Token จาก Google Authentication
+      final googleAuth = await googleAccount.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'ไม่สามารถรับ Token จาก Google ได้';
+        });
+        return;
+      }
+
+      // 3. ส่ง idToken ไปยัง Backend
       final result = await ApiService().googleLogin(
         googleId: googleAccount.id,
         email: googleAccount.email,
         displayName: googleAccount.displayName ?? 'Google User',
         photoUrl: googleAccount.photoUrl,
+        idToken: idToken, // ⭐ ส่ง idToken เพิ่ม
       );
 
       setState(() {
@@ -459,17 +472,10 @@ class _LoginPageState extends State<LoginPage> {
 
         // กรณีที่ 2: ลงทะเบียนใหม่สำเร็จ แต่ต้องรอ Admin อนุมัติ
         if (result['pending_approval'] == true) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  result['message'] ?? 'กรุณารอแอดมินอนุมัติเข้าใช้งาน',
-                ),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          }
+          setState(() {
+            _errorMessage =
+                result['message'] ?? 'กรุณารอแอดมินอนุมัติเข้าใช้งาน';
+          });
           // ออกจากระบบ Google เพราะยังเข้าใช้งานไม่ได้
           await GoogleSignInService().signOut();
           return;
@@ -477,6 +483,15 @@ class _LoginPageState extends State<LoginPage> {
 
         // กรณีที่ 3: Login สำเร็จ (มี user object)
         if (result['user_id'] != null || result['email'] != null) {
+          // 🛡️ [SAFETY] เช็คอีกรอบเพื่อความชัวร์ (Frontend Guard)
+          if (result['is_approved'] != 1) {
+            setState(() {
+              _errorMessage = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ';
+            });
+            GoogleSignInService().signOut(); // Logout ทันที
+            return;
+          }
+
           ApiService().currentUser = result;
 
           if (mounted) {

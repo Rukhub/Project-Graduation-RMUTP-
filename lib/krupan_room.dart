@@ -1454,6 +1454,17 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                       ? null
                       : () async {
                           if (idController.text.isNotEmpty) {
+                            // ⭐ Check invalid location ID
+                            if (widget.locationId <= 0) {
+                              if (mounted) {
+                                _showCustomSnackBar(
+                                  'เกิดข้อผิดพลาด: รหัสห้องไม่ถูกต้อง (ID: 0) กรุณาลบและสร้างห้องใหม่',
+                                  isSuccess: false,
+                                );
+                              }
+                              return;
+                            }
+
                             setDialogState(() => isSaving = true);
 
                             String imageUrl = '';
@@ -1478,10 +1489,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                               'status': selectedStatus,
                               'location_id': widget.locationId,
                               'brand_model': brandController.text, // Add brand
-                              // ใช้ชื่อ user ที่ Login อยู่ ถ้าไม่มีให้ใช้ 'Admin'
-                              'inspectorName':
-                                  ApiService().currentUser?['fullname'] ??
-                                  'Admin',
+                              // ⭐ ส่ง user_id แทนชื่อ
+                              'created_by':
+                                  ApiService().currentUser?['user_id'] ??
+                                  ApiService().currentUser?['id'],
                               'image_url': imageUrl,
                               'images': [],
                             };

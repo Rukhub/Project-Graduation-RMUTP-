@@ -46,12 +46,37 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       int fixed = 0;
 
       for (var report in data) {
-        final status = report['status']?.toString() ?? '';
-        if (status == 'ชำรุด') {
+        // ⭐ NEW: Check real-time asset status
+        final assetCurrentStatus = report['asset_current_status']?.toString();
+        var status = report['status']?.toString() ?? '';
+
+        // DEBUG PRINT
+        debugPrint(
+          '🔍 Report: ${report['report_id']} | Asset: ${report['asset_id']}',
+        );
+        debugPrint('   - Report Status: $status');
+        debugPrint('   - Asset Current Status: $assetCurrentStatus');
+
+        // ถ้า Asset กำลังซ่อม แต่ Report ยังขึ้นรอ -> ให้ถือว่ากำลังซ่อม
+        if ((status == 'รอดำเนินการ' ||
+                status == 'รอตรวจสอบ' ||
+                status == 'ชำรุด') &&
+            (assetCurrentStatus == 'อยู่ระหว่างซ่อม' ||
+                assetCurrentStatus == 'กำลังซ่อม')) {
+          status = 'อยู่ระหว่างซ่อม';
+          report['status'] = status; // Update local data for display
+        }
+
+        // นับ 'ชำรุด' หรือค่าว่าง/null/รอดำเนินการ เป็น 'รอดำเนินการ'
+        if (status == 'ชำรุด' ||
+            status.isEmpty ||
+            status == 'รอตรวจสอบ' ||
+            status == 'null' ||
+            status == 'รอดำเนินการ') {
           pending++;
-        } else if (status == 'อยู่ระหว่างซ่อม') {
+        } else if (status == 'อยู่ระหว่างซ่อม' || status == 'กำลังดำเนินการ') {
           repairing++;
-        } else if (status == 'ปกติ') {
+        } else if (status == 'ปกติ' || status == 'ซ่อมเสร็จแล้ว') {
           fixed++;
         }
       }
@@ -96,6 +121,8 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
   Map<String, dynamic> _getReportStatus(String assetStatus) {
     switch (assetStatus) {
       case 'ชำรุด':
+      case 'รอดำเนินการ': // เพิ่ม case ใหม่
+      case 'รอตรวจสอบ':
         return {
           'label': 'รอดำเนินการ',
           'color': Colors.amber,
@@ -103,6 +130,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           'bgColor': Colors.amber.shade50,
         };
       case 'อยู่ระหว่างซ่อม':
+      case 'กำลังดำเนินการ': // เพิ่ม case ใหม่
         return {
           'label': 'กำลังซ่อม',
           'color': Colors.orange,
@@ -110,6 +138,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           'bgColor': Colors.orange.shade50,
         };
       case 'ปกติ':
+      case 'ซ่อมเสร็จแล้ว': // เพิ่ม case ใหม่
         return {
           'label': 'ซ่อมเสร็จแล้ว',
           'color': Colors.green,
@@ -117,11 +146,12 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           'bgColor': Colors.green.shade50,
         };
       default:
+        // กรณีไม่ระบุสถานะ หรือ status เป็น null ให้ถือว่าเป็น "รอการตรวจสอบ"
         return {
-          'label': 'ไม่ทราบสถานะ',
-          'color': Colors.grey,
-          'icon': Icons.help_outline,
-          'bgColor': Colors.grey.shade100,
+          'label': 'รอการตรวจสอบ',
+          'color': Colors.amber.shade700,
+          'icon': Icons.hourglass_top,
+          'bgColor': Colors.amber.shade50,
         };
     }
   }

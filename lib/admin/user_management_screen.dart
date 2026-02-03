@@ -246,6 +246,193 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     }
   }
 
+  Future<void> _deleteAllPendingUsers() async {
+    bool confirm =
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('ยืนยันลบทั้งหมด'),
+            content: Text(
+              'คุณต้องการลบ/ปฏิเสธผู้ใช้ที่รออนุมัติทั้งหมด ${_pendingUsers.length} คนใช่หรือไม่?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('ยกเลิก'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text(
+                  'ลบทั้งหมด',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (confirm) {
+      final result = await ApiService().deleteAllPendingUsersAPI();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
+            backgroundColor: result['success'] == true
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+      }
+      setState(() => _selectedUserIds.clear());
+      _loadUsers();
+    }
+  }
+
+  Future<void> _deleteSelectedUsers() async {
+    if (_selectedUserIds.isEmpty) return;
+
+    bool confirm =
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('ยืนยันลบที่เลือก'),
+            content: Text(
+              'คุณต้องการลบ/ปฏิเสธผู้ใช้ที่เลือก ${_selectedUserIds.length} คนใช่หรือไม่?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('ยกเลิก'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                ),
+                child: const Text(
+                  'ลบที่เลือก',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (confirm) {
+      final result = await ApiService().deleteSelectedUsersAPI(
+        _selectedUserIds.toList(),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
+            backgroundColor: result['success'] == true
+                ? Colors.green
+                : Colors.red,
+          ),
+        );
+      }
+      setState(() => _selectedUserIds.clear());
+      _loadUsers();
+    }
+  }
+
+  void _showManagementOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'ตัวเลือกการจัดการ',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF9A2C2C),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Approve Selected
+              if (_hasSelection)
+                ListTile(
+                  leading: const Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.blue,
+                  ),
+                  title: Text(
+                    'อนุมัติที่เลือก (${_selectedUserIds.length})',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _approveSelectedUsers();
+                  },
+                ),
+
+              // Delete Selected
+              if (_hasSelection)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_sweep,
+                    color: Colors.redAccent,
+                  ),
+                  title: Text(
+                    'ลบ/ปฏิเสธ ที่เลือก (${_selectedUserIds.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _deleteSelectedUsers();
+                  },
+                ),
+
+              if (_hasSelection) const Divider(),
+
+              // Delete All
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('ลบทั้งหมด (ล้างรายการ)'),
+                subtitle: Text(
+                  'ลบผู้ใช้รออนุมัติทั้งหมด ${_pendingUsers.length} คน',
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteAllPendingUsers();
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _toggleUserSelection(int userId) {
     setState(() {
       if (_selectedUserIds.contains(userId)) {
@@ -380,25 +567,20 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     }
     return Column(
       children: [
-        // Action Buttons Row
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
-              // Approve All Button
+              // Approve All Button (Primary Action)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _approveAllUsers,
-                  icon: const Icon(
-                    Icons.done_all,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  icon: const Icon(Icons.done_all, color: Colors.white),
                   label: Text(
                     'อนุมัติทั้งหมด (${_pendingUsers.length})',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                      fontSize: 16,
                       color: Colors.white,
                     ),
                   ),
@@ -408,38 +590,35 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    elevation: 4,
+                    // shadowColor: Colors.green.withOpacity(0.4),
                   ),
                 ),
               ),
-              // Approve Selected Button (แสดงเมื่อมีการเลือก)
-              if (_hasSelection) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _approveSelectedUsers,
-                    icon: const Icon(
-                      Icons.check_box,
-                      color: Colors.white,
-                      size: 20,
+              const SizedBox(width: 12),
+              // Options Button (Secondary Action)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.shade200,
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
                     ),
-                    label: Text(
-                      'อนุมัติที่เลือก (${_selectedUserIds.length})',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue.shade600,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                  ],
+                ),
+                child: IconButton(
+                  onPressed: _showManagementOptions,
+                  icon: const Icon(Icons.tune, color: Color(0xFF9A2C2C)),
+                  tooltip: 'ตัวเลือกจัดการ',
+                  style: IconButton.styleFrom(
+                    padding: const EdgeInsets.all(12),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),

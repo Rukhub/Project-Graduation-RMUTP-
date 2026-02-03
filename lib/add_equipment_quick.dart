@@ -746,6 +746,19 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                           final messenger = ScaffoldMessenger.of(context);
 
                           // Validation
+                          // ⭐ NEW: Check invalid location ID
+                          if (locationId <= 0) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'เกิดข้อผิดพลาด: รหัสห้องไม่ถูกต้อง (ID: 0) กรุณาลบและสร้างห้องใหม่',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                            return;
+                          }
+
                           if (assetIdController.text.trim().isEmpty) {
                             messenger.showSnackBar(
                               const SnackBar(
@@ -769,14 +782,12 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
 
                           try {
                             final assetId = assetIdController.text.trim();
-                            // Get current user for created_by
+                            // ⭐ Get current user ID for created_by tracking
                             final currentUser = ApiService().currentUser;
-                            String createdBy = '';
+                            int? createdById;
                             if (currentUser != null) {
-                              createdBy =
-                                  currentUser['fullname'] ??
-                                  currentUser['username'] ??
-                                  '';
+                              createdById =
+                                  currentUser['user_id'] ?? currentUser['id'];
                             }
 
                             // Upload image first if selected
@@ -802,6 +813,12 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                               }
                             }
 
+                            // 🔍 Debug: ดูว่า created_by เป็นอะไร
+                            debugPrint('🔍 Before Add Asset:');
+                            debugPrint('  - currentUser: $currentUser');
+                            debugPrint('  - createdById: $createdById');
+                            debugPrint('  - Type: ${createdById.runtimeType}');
+
                             final result = await ApiService().addAsset({
                               'asset_id': assetId,
                               'type': selectedType,
@@ -809,9 +826,8 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                               'location_id': locationId,
                               'status': 'ปกติ',
                               'images': imageUrl != null ? [imageUrl] : [],
-                              'created_by': createdBy,
-                              'inspectorName':
-                                  createdBy, // Set inspector as creator initially
+                              'created_by':
+                                  createdById, // ⭐ ส่ง user_id แทนชื่อ
                             });
 
                             if (!context.mounted) return;

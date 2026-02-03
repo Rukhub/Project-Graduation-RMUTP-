@@ -6,7 +6,7 @@ class GoogleSignInService {
     scopes: ['email', 'profile'],
     // จำกัดเฉพาะอีเมล @rmutp.ac.th เท่านั้น
     hostedDomain: 'rmutp.ac.th',
-    // Web Client ID จาก Google Cloud Console
+    // ⭐ Web Client ID (สำหรับส่ง Token ไปยัง Backend)
     serverClientId:
         '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com',
   );

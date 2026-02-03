@@ -106,17 +106,19 @@ class ApiService {
     required String email,
     required String displayName,
     String? photoUrl,
+    String? idToken, // ⭐ เพิ่ม idToken parameter
   }) async {
     try {
       debugPrint('🔄 กำลังล็อกอินด้วย Google: $email');
 
       final response = await http.post(
-        Uri.parse('$baseUrl/auth/google-login'),
+        Uri.parse('$baseUrl/google-login'),
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
         },
         body: jsonEncode({
+          'idToken': idToken, // ⭐ ส่ง idToken ไปให้ backend
           'google_id': googleId,
           'email': email,
           'fullname': displayName,
@@ -319,6 +321,12 @@ class ApiService {
           // Note: Backend might ignore extra fields, so this is safe.
         }),
       );
+
+      // 🔍 Debug: ดูว่าส่งอะไรไป Backend
+      debugPrint('📤 Request Body:');
+      debugPrint('  - asset_id: ${assetData['asset_id']}');
+      debugPrint('  - created_by: ${assetData['created_by']}');
+      debugPrint('  - location_id: ${assetData['location_id']}');
 
       debugPrint('📡 Add Asset Status: ${response.statusCode}');
       final data = jsonDecode(response.body);
@@ -1063,6 +1071,72 @@ class ApiService {
       };
     } catch (e) {
       debugPrint('🚨 Approve selected users error: $e');
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// ลบผู้ใช้ทั้งหมดที่รออนุมัติ (Delete All Pending)
+  /// DELETE /api/users/delete-all-pending
+  Future<Map<String, dynamic>> deleteAllPendingUsersAPI() async {
+    try {
+      debugPrint('🗑️ กำลังลบผู้ใจรออนุมัติทั้งหมด...');
+
+      // Update URL to match backend: /api/users/delete-all-pending
+      final response = await http.delete(
+        Uri.parse('$baseUrl/users/delete-all-pending'),
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      );
+
+      debugPrint('📡 Delete All Status: ${response.statusCode}');
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'ลบเรียบร้อยแล้ว',
+        };
+      }
+      return {'success': false, 'message': data['message'] ?? 'ลบไม่สำเร็จ'};
+    } catch (e) {
+      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+    }
+  }
+
+  /// ลบผู้ใช้เฉพาะที่เลือก (Delete Selected Users)
+  /// DELETE /api/users/delete-selected
+  Future<Map<String, dynamic>> deleteSelectedUsersAPI(List<int> userIds) async {
+    try {
+      debugPrint('🗑️ กำลังลบผู้ใช้ที่เลือก ${userIds.length} คน...');
+
+      // Use DELETE method with body
+      final request = http.Request(
+        'DELETE',
+        Uri.parse('$baseUrl/users/delete-selected'),
+      );
+      request.headers.addAll({
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      });
+      request.body = jsonEncode({'userIds': userIds});
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      debugPrint('📡 Delete Selected Status: ${response.statusCode}');
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'ลบที่เลือกเรียบร้อยแล้ว',
+        };
+      }
+      return {'success': false, 'message': data['message'] ?? 'ลบไม่สำเร็จ'};
+    } catch (e) {
+      debugPrint('🚨 Delete Selected Error: $e');
       return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
     }
   }

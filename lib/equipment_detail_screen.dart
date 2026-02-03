@@ -15,11 +15,13 @@ import 'report_problem_screen.dart'; // Import Report Screen
 class EquipmentDetailScreen extends StatefulWidget {
   final Map<String, dynamic> equipment;
   final String roomName;
+  final bool autoOpenCheckDialog; // ⭐ เพิ่มตัวแปรนี้
 
   const EquipmentDetailScreen({
     super.key,
     required this.equipment,
     required this.roomName,
+    this.autoOpenCheckDialog = false, // Default เป็น false
   });
 
   @override
@@ -35,10 +37,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   String equipmentStatus = 'ปกติ';
   String originalStatus = 'ปกติ';
   int? internalId;
-  String? inspectorName;
+  String? inspectorName; // ชื่อผู้ตรวจสอบล่าสุด
+  String? creatorName; // ชื่อผู้เพิ่มครุภัณฑ์
   String? reporterName;
   String? reportReason;
   List<String> reportImages = [];
+  String brandModel = '-'; // ⭐ State variable for Brand/Model
+  String currentRoomName = ''; // ⭐ State variable for Room Name
 
   // ⭐ Admin check - ใช้ทั่วทั้ง widget
   bool get isAdmin => ApiService().currentUser?['role'] == 'admin';
@@ -49,6 +54,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   @override
   void initState() {
     super.initState();
+
+    // ⭐ ถ้าต้องการให้เปิดหน้าตรวจสอบทันที (สำหรับ Admin กดมาจาก History)
+    if (widget.autoOpenCheckDialog) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showStatusDialog();
+      });
+    }
 
     // 1. โหลดรูปภาพ
     if (widget.equipment['images'] != null) {
@@ -89,6 +101,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         widget.equipment['report_reason'] ??
         widget.equipment['issue_detail'];
 
+    // Load Brand Model
+    brandModel =
+        widget.equipment['brand_model'] ?? widget.equipment['brand'] ?? '-';
+
+    // ⭐ Init currentRoomName
+    currentRoomName = widget.roomName;
+
     if (widget.equipment['reportImages'] != null) {
       if (widget.equipment['reportImages'] is List) {
         reportImages = List<String>.from(widget.equipment['reportImages']);
@@ -115,6 +134,20 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       if (mounted) {
         setState(() {
           checkLogs = logs;
+
+          // ⭐ อัปเดตชื่อผู้ตรวจสอบล่าสุดจาก check_logs
+          if (logs.isNotEmpty) {
+            final latestLog = logs.first; // ล่าสุดอยู่อันดับแรก
+            final fetchedInspectorName =
+                latestLog['checker_name']?.toString() ??
+                latestLog['fullname']?.toString();
+
+            if (fetchedInspectorName != null &&
+                fetchedInspectorName.isNotEmpty) {
+              inspectorName = fetchedInspectorName;
+              debugPrint('✅ Inspector Name from check_logs: $inspectorName');
+            }
+          }
         });
       }
     } catch (e) {
@@ -142,9 +175,20 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           updatedAsset = asset;
           // ถ้าได้ location_id มา ก็อัพเดท roomName ด้วย
           if (asset['location_name'] != null && mounted) {
-            // อัพเดท widget.roomName is final, can't change
-            // But we can store it in state if needed
-            debugPrint('🏠 Found room: ${asset['location_name']}');
+            final fetchedRoom = asset['location_name'].toString();
+            final fetchedFloor = asset['floor']?.toString() ?? '';
+            setState(() {
+              final floorText =
+                  fetchedFloor.isNotEmpty && !fetchedFloor.startsWith('null')
+                  ? (fetchedFloor.startsWith('ชั้น')
+                        ? fetchedFloor
+                        : 'ชั้น $fetchedFloor')
+                  : '';
+              currentRoomName = floorText.isNotEmpty
+                  ? '$fetchedRoom ($floorText)'
+                  : fetchedRoom;
+            });
+            debugPrint('🏠 Found room: $currentRoomName');
           }
         }
       } else if (locationId > 0) {
@@ -188,6 +232,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               // Get the latest report
               final latestReport =
                   myReports.first; // Bo's API usually orders by DESC
+
+              // ⭐ Extract reporter name from reports API
+              final fetchedReporterName =
+                  latestReport['reporter_name']?.toString() ??
+                  latestReport['fullname']?.toString();
+
+              // ⭐ Extract issue detail from reports API
+              final fetchedIssueDetail = latestReport['issue_detail']
+                  ?.toString();
+
+              // Extract images
               final rawImageUrl = latestReport['image_url']?.toString();
               if (rawImageUrl != null && rawImageUrl.trim().isNotEmpty) {
                 fetchedReportImages = rawImageUrl
@@ -197,6 +252,22 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 debugPrint(
                   '✅ Found ${fetchedReportImages.length} images from Asset Reports API',
                 );
+              }
+
+              // ⭐ Update reporter info immediately from reports API
+              if (mounted) {
+                setState(() {
+                  if (fetchedReporterName != null &&
+                      fetchedReporterName.isNotEmpty) {
+                    reporterName = fetchedReporterName;
+                    debugPrint('👤 Reporter Name from API: $reporterName');
+                  }
+                  if (fetchedIssueDetail != null &&
+                      fetchedIssueDetail.isNotEmpty) {
+                    reportReason = fetchedIssueDetail;
+                    debugPrint('📝 Issue Detail from API: $reportReason');
+                  }
+                });
               }
             } else {
               debugPrint('📊 No reports found for this asset in backend');
@@ -211,14 +282,34 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           equipmentStatus = currentStatus;
           originalStatus = equipmentStatus;
 
-          // Update Inspector
+          // Update Inspector (จาก check_logs)
           inspectorName =
               updatedAsset['inspectorName'] ?? updatedAsset['checker_name'];
 
-          // Update Reporter
+          // Update Creator (จาก created_by) - แปลง user_id เป็นชื่อ
+          final createdById =
+              updatedAsset['created_by_name'] ?? updatedAsset['created_by'];
+          creatorName = ApiService().getUserName(createdById);
+
+          // Update Brand Model
+          if (updatedAsset['brand_model'] != null) {
+            brandModel = updatedAsset['brand_model'];
+          }
+
+          // 🔍 Debug: ดูว่า Backend ส่งอะไรมา
+          debugPrint('🔍 Data Debug:');
+          debugPrint('  - inspectorName: $inspectorName');
+          debugPrint('  - created_by raw: $createdById');
+          debugPrint('  - creatorName resolved: $creatorName');
+          debugPrint('  - All keys: ${updatedAsset.keys.toList()}');
+
+          // Update Reporter - ⭐ ใช้ค่าจาก Reports API ก่อน (ถ้ามี) ไม่งั้นใช้จาก asset
           reporterName =
-              updatedAsset['reporterName'] ?? updatedAsset['reporter_name'];
+              reporterName ??
+              updatedAsset['reporterName'] ??
+              updatedAsset['reporter_name'];
           reportReason =
+              reportReason ??
               updatedAsset['reportReason'] ??
               updatedAsset['report_reason'] ??
               updatedAsset['issue_detail'];
@@ -755,7 +846,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 ),
               ),
               Text(
-                widget.roomName,
+                currentRoomName.isNotEmpty && currentRoomName != 'ไม่ระบุห้อง'
+                    ? currentRoomName
+                    : (widget.roomName ?? 'ไม่ระบุห้อง'),
                 style: const TextStyle(fontSize: 14, color: Colors.white70),
               ),
             ],
@@ -801,6 +894,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               _buildReporterSection(),
               const SizedBox(height: 20),
             ],
+
+            // ผู้สร้าง (แสดงตลอด - ย้ายมาข้างล่าง)
+            _buildCreatorSection(),
+            const SizedBox(height: 20),
 
             // ประวัติการตรวจสอบ (เอาออกตาม request)
             // _buildInspectionHistory(),
@@ -987,7 +1084,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           _buildInfoRow(
             Icons.branding_watermark,
             'ยี่ห้อ/รุ่น',
-            widget.equipment['brand_model'] ?? '-',
+            brandModel, // ⭐ Use state variable
             const Color(0xFFFECC52),
           ),
           const Divider(height: 30),
@@ -1001,7 +1098,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           _buildInfoRow(
             Icons.location_on,
             'ห้อง',
-            widget.roomName,
+            currentRoomName.isNotEmpty && currentRoomName != 'ไม่ระบุห้อง'
+                ? currentRoomName
+                : (widget.roomName ?? 'ไม่ระบุห้อง'),
             const Color(0xFF9A2C2C),
           ),
         ],
@@ -1075,13 +1174,22 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     );
   }
 
-  // Section ผู้ตรวจ
+  // Section ผู้ตรวจสอบล่าสุด (แสดงเฉพาะตอนสถานะปกติ)
   Widget _buildInspectorSection() {
+    // ถ้ายังไม่มีผู้ตรวจสอบ ให้ซ่อนไปเลย
+    if (inspectorName == null || inspectorName!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF5593E4).withValues(alpha: 0.3),
+          width: 2,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -1094,90 +1202,210 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF5593E4).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5593E4).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF5593E4),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ผู้ตรวจสอบล่าสุด',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.person_search,
-                      color: Color(0xFF5593E4),
-                      size: 24,
+                    Text(
+                      'ผู้ตรวจสอบ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        letterSpacing: 0.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'ผู้ตรวจสอบ',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
           const SizedBox(height: 15),
-          // ชื่อผู้ตรวจ
+
+          // ผู้ตรวจสอบ - Box (กู้คืนกลับมา)
           Container(
-            padding: const EdgeInsets.all(15),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              color: const Color(0xFF5593E4).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: const Color(0xFF5593E4).withValues(alpha: 0.2),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Row(
               children: [
-                Icon(Icons.person, color: Colors.grey.shade600, size: 22),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5593E4).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: Color(0xFF3B82F6),
+                    size: 20,
+                  ),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Builder(
-                    builder: (context) {
-                      // Logic to handle if backend saved ID instead of Name
-                      String displayName = inspectorName ?? '-';
-
-                      // Check if it's numeric (ID)
-                      if (int.tryParse(displayName) != null) {
-                        final currentUserId = ApiService()
-                            .currentUser?['user_id']
-                            ?.toString();
-                        if (displayName == currentUserId) {
-                          displayName =
-                              ApiService().currentUser?['fullname'] ??
-                              ApiService().currentUser?['username'] ??
-                              displayName;
-                        } else {
-                          displayName = 'ผู้ตรวจสอบ #$displayName';
-                        }
-                      } else if (displayName == '-') {
-                        // Fallback to current user if null
-                        displayName =
-                            ApiService().currentUser?['fullname'] ??
-                            ApiService().currentUser?['username'] ??
-                            'Admin';
-                      }
-
-                      return Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: Colors.black87,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      );
-                    },
+                  child: Text(
+                    inspectorName ?? 'ยังไม่มีการตรวจสอบ',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF3B82F6),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          // ... images ...
+        ],
+      ),
+    );
+  }
+
+  // Section ผู้สร้าง (แสดงตลอด)
+  Widget _buildCreatorSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.verified_user,
+                  color: Color(0xFF10B981),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ผู้เพิ่มครุภัณฑ์',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    Text(
+                      'ผู้เพิ่ม',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+
+          // ผู้สร้าง - Box (กู้คืนกลับมา)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: Color(0xFF059669),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    creatorName ?? 'ไม่ระบุผู้สร้าง',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF059669),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1229,9 +1457,12 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       latestLog = checkLogs.first;
     }
 
-    String inspector = ApiService().getUserName(
-      latestLog?['checker_name'] ?? inspectorName ?? latestLog?['checker_id'],
-    );
+    // ⭐ ใช้ชื่อผู้ตรวจสอบจาก Backend โดยตรง (ไม่ผ่าน getUserName เพราะจะ override ด้วย currentUser)
+    String inspector =
+        latestLog?['checker_name'] ??
+        latestLog?['fullname'] ??
+        inspectorName ??
+        'ไม่ระบุผู้ตรวจสอบ';
 
     final String remark =
         latestLog?['remark'] ?? latestLog?['check_detail'] ?? 'ไม่มีรายละเอียด';
@@ -1309,7 +1540,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'ผู้ตรวจสอบ',
+                      'ผู้ซ่อม',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.orange.shade300,
