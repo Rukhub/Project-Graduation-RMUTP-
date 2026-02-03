@@ -233,9 +233,9 @@ app.post('/api/reports', upload.single('image'), (req, res) => {
     if (!imageUrl && req.file) {
         imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-    // ⭐ [FIX] บันทึกสถานะ 'รอตรวจสอบ' ลงใน Report เสมอ
+    // ⭐ [FIX] บันทึกสถานะ 'รอดำเนินการ' (ตาม ENUM ใน DB) ลงใน Report เสมอ
     const sql = `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date, status) 
-                 VALUES (?, ?, ?, ?, NOW(), 'รอตรวจสอบ')`;
+                 VALUES (?, ?, ?, ?, NOW(), 'รอดำเนินการ')`;
     db.query(sql, [asset_id, reporter, detail, imageUrl], (err) => {
         if (err) {
             console.error("❌ บันทึกไม่สำเร็จ:", err);
@@ -317,7 +317,7 @@ app.post('/api/check-logs', (req, res) => {
                     // ⭐ [FIX] ถ้าซ่อมเสร็จ ให้ไปปิดจ๊อบใน Reports ด้วย!
                     if (result_status === 'ปกติ' || result_status === 'ใช้งานได้') {
                         db.query(
-                            "UPDATE reports SET status='ดำเนินการเสร็จสิ้น' WHERE asset_id=? AND status='รอตรวจสอบ'",
+                            "UPDATE reports SET status='ซ่อมเสร็จแล้ว' WHERE asset_id=? AND status='รอดำเนินการ'",
                             [asset_id]
                         );
                     }
