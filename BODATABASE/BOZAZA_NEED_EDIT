@@ -63,6 +63,57 @@ app.get('/api/users/all', (req, res) => {
         (err, results) => res.json(results)
     );
 });
+// ✅ ดึง User ที่รออนุมัติ (is_approved = 0 หรือ NULL)
+app.get('/api/users/pending', (req, res) => {
+    db.query(
+        "SELECT * FROM users WHERE is_approved = 0 OR is_approved IS NULL ORDER BY created_at DESC",
+        (err, results) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json(results || []);
+        }
+    );
+});
+// ✅ อนุมัติ User คนเดียว
+app.put('/api/users/:id/approve', (req, res) => {
+    const userId = req.params.id;
+    db.query(
+        "UPDATE users SET is_approved = 1 WHERE user_id = ?",
+        [userId],
+        (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            console.log(`✅ อนุมัติ User ID: ${userId} สำเร็จ`);
+            res.json({ success: true, message: 'อนุมัติผู้ใช้สำเร็จ' });
+        }
+    );
+});
+// ✅ อนุมัติ User ทั้งหมดที่รออยู่
+app.put('/api/users/approve-all', (req, res) => {
+    db.query(
+        "UPDATE users SET is_approved = 1 WHERE is_approved = 0 OR is_approved IS NULL",
+        (err, result) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            console.log(`✅ อนุมัติ User ทั้งหมด ${result.affectedRows} คนสำเร็จ`);
+            res.json({ success: true, message: `อนุมัติผู้ใช้ ${result.affectedRows} คนสำเร็จ` });
+        }
+    );
+});
+// ✅ อนุมัติ User ที่เลือก (รับ Array ของ user_ids)
+app.put('/api/users/approve-selected', (req, res) => {
+    const { userIds } = req.body;
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User ที่จะอนุมัติ' });
+    }
+    const placeholders = userIds.map(() => '?').join(',');
+    db.query(
+        `UPDATE users SET is_approved = 1 WHERE user_id IN (${placeholders})`,
+        userIds,
+        (err, result) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            console.log(`✅ อนุมัติ User ที่เลือก ${result.affectedRows} คนสำเร็จ`);
+            res.json({ success: true, message: `อนุมัติผู้ใช้ ${result.affectedRows} คนสำเร็จ` });
+        }
+    );
+});
 // อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
 app.put('/api/users/:id/role', (req, res) => {
     const { role } = req.body;
@@ -399,30 +450,17 @@ app.post('/api/google-login', async (req, res) => {
         if (!email.endsWith('@rmutp.ac.th')) {
             return res.status(403).json({ success: false, message: "อีเมลไม่ถูกต้อง" });
         }
-db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
-    if (err) {
-        console.error("❌ SQL SELECT Error:", err.message);
-        return res.status(500).json({ message: "DB Error" });
-    }
-
-    if (results?.length > 0) {
-        const user = results[0];
-
-        // 🛡️ [หัวใจสำคัญ] ต้องเช็กก่อน และต้องใช้ return เพื่อไม่ให้โค้ดทำงานต่อ
-        if (user.is_approved !== 1) { 
-            console.warn(`🔒 บล็อกการเข้าถึง: ${user.email} (Status: ${user.is_approved})`);
-            return res.status(403).json({ 
-                success: false, 
-                message: "บัญชีของคุณกำลังรอการอนุมัติ" 
-            });
-        }
-
-        // ✅ ถ้าผ่านเช็กข้างบน ถึงจะอนุญาตให้ล็อกอินสำเร็จ
-        console.log("✅ อนุมัติแล้ว ล็อกอินสำเร็จ");
-        return res.json({ success: true, user: user });
-
-    } else {
-                console.log("🆕 New user, creating account...");
+        db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
+            if (err) {
+                console.error("❌ SQL SELECT Error:", err.message);
+                return res.status(500).json({ message: "DB Error" });
+            }
+            if (results?.length > 0) {
+                console.log("✅ User exists, logging in...");
+                res.json({ success: true, user: results[0] });
+            } else {
+                // ⭐ User ใหม่ = สร้างโดย is_approved = 0 (ต้องรอ Admin อนุมัติ!)
+                console.log("🆕 New user, creating account (pending approval)...");
                 const newUser = {
                     username: email,
                     email: email,
@@ -430,7 +468,7 @@ db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
                     google_id: sub,
                     photo_url: picture,
                     role: 'user',
-                    is_approved: 0, // 🔥 [FIX] ตั้งค่าเริ่มต้นเป็น 0 (รออนุมัติ)
+                    is_approved: 0,  // ⭐ ต้องรอ Admin อนุมัติก่อนใช้งานได้!
                     created_at: new Date()
                 };
                 db.query("INSERT INTO users SET ?", newUser, (insertErr, result) => {
@@ -438,7 +476,12 @@ db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
                         console.error("❌ SQL INSERT Error:", insertErr.message);
                         return res.status(500).json({ message: "Insert Fail" });
                     }
-                    res.json({ success: true, user: { user_id: result.insertId, ...newUser } });
+                    // ⭐ [FIX] ส่งแค่ user_id ไม่ส่ง user object เพื่อให้ Frontend รู้ว่าต้องรออนุมัติ
+                    res.json({
+                        success: true,
+                        user_id: result.insertId,
+                        message: "บัญชีของคุณกำลังรอการอนุมัติ"
+                    });
                 });
             }
         });
@@ -447,32 +490,6 @@ db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
         res.status(401).json({ success: false, message: error.message });
     }
 });
-
-/* ==========================================
- * user
- * ========================================== */
-// 1. ดึงรายชื่อคนที่ "รออนุมัติ" (is_approved = 0)
-app.get('/api/users/pending', (req, res) => {
-    db.query("SELECT * FROM users WHERE is_approved = 0 ORDER BY created_at DESC", 
-        (err, results) => {
-            if (err) return res.status(500).json(err);
-            res.json(results);
-        }
-    );
-});
-
-// 2. กดอนุมัติผู้ใช้งาน (เปลี่ยน 0 เป็น 1)
-app.put('/api/users/:id/approve', (req, res) => {
-    const userId = req.params.id;
-    const sql = "UPDATE users SET is_approved = 1 WHERE user_id = ?";
-    
-    db.query(sql, [userId], (err, result) => {
-        if (err) return res.status(500).json(err);
-        console.log(`🔓 อนุมัติ User ID: ${userId} เรียบร้อยแล้ว`);
-        res.json({ success: true, message: "อนุมัติการใช้งานสำเร็จ!" });
-    });
-});
-
 /* ==========================================
  * 🔟 SERVER START
  * ========================================== */
