@@ -4,28 +4,23 @@
  * Assets / Locations / Reports / Check-Logs / Users
  * ==========================================
  */
-
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-
 const app = express();
-
 /* ==========================================
  * 1️⃣ GLOBAL CONFIG & MIDDLEWARE
  * ========================================== */
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
 // create uploads folder
 if (!fs.existsSync('./uploads')) {
     fs.mkdirSync('./uploads');
 }
-
 /* ==========================================
  * 2️⃣ DATABASE CONNECTION
  * ========================================== */
@@ -36,12 +31,10 @@ const db = mysql.createConnection({
     database: 'krupandb',
     timezone: '+07:00'
 });
-
 db.connect(err => {
     if (err) return console.error('❌ DB Error:', err);
     console.log('✅ Database Connected');
 });
-
 /* ==========================================
  * 3️⃣ FILE UPLOAD (MULTER)
  * ========================================== */
@@ -51,7 +44,6 @@ const storage = multer.diskStorage({
         cb(null, Date.now() + path.extname(file.originalname))
 });
 const upload = multer({ storage });
-
 /* ==========================================
  * 4️⃣ AUTH / USERS
  * ========================================== */
@@ -66,18 +58,15 @@ app.post('/api/login', (req, res) => {
         }
     );
 });
-
 app.get('/api/users/all', (req, res) => {
     db.query("SELECT * FROM users ORDER BY created_at DESC",
         (err, results) => res.json(results)
     );
 });
-
 // อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
 app.put('/api/users/:id/role', (req, res) => {
     const { role } = req.body; // รับค่า 'admin', 'checker', หรือ 'user'
     const userId = req.params.id;
-
     // 🛡️ กฎเหล็ก: เช็กก่อนว่าถ้าจะลดสิทธิ์ Admin ต้องเหลือ Admin อย่างน้อย 1 คนเสมอ
     const checkAdminSql = "SELECT COUNT(*) as adminCount FROM users WHERE role = 'admin'";
     
@@ -85,7 +74,6 @@ app.put('/api/users/:id/role', (req, res) => {
         if (err) return res.status(500).json(err);
         
         const adminCount = results[0].adminCount;
-
         // ถ้าพยายามเปลี่ยน admin คนสุดท้ายเป็นอย่างอื่น จะไม่อนุญาต
         if (role !== 'admin' && adminCount <= 1) {
             // เช็กเพิ่มว่าคนที่กำลังโดนเปลี่ยนเนี่ยเป็น admin หรือเปล่า
@@ -103,7 +91,6 @@ app.put('/api/users/:id/role', (req, res) => {
         } else {
             performUpdate();
         }
-
         function performUpdate() {
             const updateSql = "UPDATE users SET role = ? WHERE user_id = ?";
             db.query(updateSql, [role, userId], (err) => {
@@ -114,7 +101,6 @@ app.put('/api/users/:id/role', (req, res) => {
         }
     });
 });
-
 // ลบผู้ใช้งาน (กรณีมีอีเมลแอบเนียนเข้ามา)
 app.delete('/api/users/:id', (req, res) => {
     const userId = req.params.id;
@@ -124,7 +110,6 @@ app.delete('/api/users/:id', (req, res) => {
         res.json({ success: true });
     });
 });
-
 /* ==========================================
  * 5️⃣ LOCATIONS (ROOMS)
  * ========================================== */
@@ -134,7 +119,6 @@ app.get('/api/locations', (req, res) => {
         (err, results) => res.json(results)
     );
 });
-
 app.post('/api/locations', (req, res) => {
     const { room_name, floor } = req.body;
     db.query(
@@ -143,7 +127,6 @@ app.post('/api/locations', (req, res) => {
         () => res.json({ success: true })
     );
 });
-
 app.put('/api/locations/:id', (req, res) => {
     const { room_name, floor } = req.body;
     db.query(
@@ -152,7 +135,6 @@ app.put('/api/locations/:id', (req, res) => {
         () => res.json({ success: true })
     );
 });
-
 app.delete('/api/locations/:id', (req, res) => {
     db.query(
         "DELETE FROM locations WHERE location_id = ?",
@@ -160,11 +142,9 @@ app.delete('/api/locations/:id', (req, res) => {
         () => res.json({ success: true })
     );
 });
-
 /* ==========================================
  * 6️⃣ ASSETS (CRUD)
  * ========================================== */
-
 app.get('/api/assets', (req, res) => {
     const sql = `
         SELECT a.*, l.room_name, l.floor,
@@ -187,7 +167,6 @@ app.get('/api/assets', (req, res) => {
         res.json(results);
     });
 });
-
 // assets by room
 app.get('/api/assets/room/:locationId', (req, res) => {
     db.query(
@@ -196,23 +175,19 @@ app.get('/api/assets/room/:locationId', (req, res) => {
         (err, results) => res.json(results)
     );
 });
-
 // create asset (รองรับทั้งแบบอัปโหลดไฟล์ และแบบส่ง URL แยกตามที่รักบอก)
 app.post('/api/assets', upload.single('image'), (req, res) => {
     // รับ created_by จากรัก (ซึ่งรักต้องส่งชื่อ 'Admin Bo' หรือ email มาให้โบ)
     const { asset_id, asset_type, brand_model, location_id, status, created_by, image_url } = req.body;
-
     let finalImageUrl = image_url || ''; 
     if (req.file) {
         finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-
     const sql = `
         INSERT INTO assets 
         (asset_id, asset_type, brand_model, location_id, status, image_url, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
-
     // บันทึกค่า created_by ที่ได้จากแอป ถ้าแอปไม่ส่งมาค่อยใช้ 'System'
     db.query(
         sql, 
@@ -223,24 +198,20 @@ app.post('/api/assets', upload.single('image'), (req, res) => {
         }
     );
 });
-
 // update asset (แก้ไข: เอา created_by ออกจากการอัปเดต เพื่อรักษาชื่อผู้สร้างเดิม)
 app.put('/api/assets/:id', upload.single('image'), (req, res) => {
     const { asset_type, brand_model, location_id, status, image_url } = req.body;
     const assetId = req.params.id;
-
     let finalImage = image_url;
     if (req.file) {
         finalImage = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-
     // ลบ created_by=? ออกจาก SQL เพื่อไม่ให้คนสร้างคนแรกโดนเขียนทับ
     const sql = `
         UPDATE assets 
         SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=?
         WHERE asset_id=?
     `;
-
     db.query(
         sql,
         [asset_type, brand_model, location_id, status, finalImage, assetId],
@@ -254,14 +225,12 @@ app.put('/api/assets/:id', upload.single('image'), (req, res) => {
         }
     );
 });
-
 // ⭐ แก้ปัญหา 404 POST /api/upload
 app.post('/api/upload', upload.single('image'), (req, res) => {
     if (!req.file) return res.status(400).json({ message: "ไม่ได้เลือกรูปภาพ" });
     const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     res.json({ success: true, image_url: imageUrl });
 });
-
 // delete asset
 app.delete('/api/assets/:id', (req, res) => {
     db.query(
@@ -270,27 +239,22 @@ app.delete('/api/assets/:id', (req, res) => {
         () => res.json({ success: true })
     );
 });
-
 /* ==========================================
  * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำของรัก
  * ========================================== */
 app.post('/api/reports', upload.single('image'), (req, res) => {
     // 1. เพิ่ม image_url เข้ามาในตัวรับค่า (Destructuring)
     const { asset_id, reporter_name, fullname, issue_detail, details, image_url } = req.body;
-
     const reporter = reporter_name || fullname || 'ไม่ระบุชื่อ';
     const detail = issue_detail || details || 'ไม่ได้ระบุรายละเอียด';
-
     // 2. ปรับการดึง URL รูปภาพให้ฉลาดขึ้น
     let imageUrl = image_url || ''; 
     if (!imageUrl && req.file) {
         imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-
     // 3. เพิ่ม Error Handling เพื่อเช็กว่าบันทึกสำเร็จไหม
     const sql = `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date) 
                  VALUES (?, ?, ?, ?, NOW())`;
-
     db.query(sql, [asset_id, reporter, detail, imageUrl], (err) => {
         if (err) {
             console.error("❌ บันทึกไม่สำเร็จ:", err);
@@ -300,7 +264,6 @@ app.post('/api/reports', upload.single('image'), (req, res) => {
         res.json({ success: true });
     });
 });
-
 app.get('/api/assets/:assetId/reports', (req, res) => {
     db.query(
         "SELECT r.*, r.reporter_name AS fullname FROM reports r WHERE r.asset_id = ? ORDER BY r.report_date DESC",
@@ -308,7 +271,6 @@ app.get('/api/assets/:assetId/reports', (req, res) => {
         (err, results) => res.json(results)
     );
 });
-
 app.get('/api/reports', (req, res) => {
     const sql = `
         SELECT r.*, a.asset_type, a.brand_model, l.room_name,
@@ -323,12 +285,11 @@ app.get('/api/reports', (req, res) => {
         res.json(results);
     });
 });
-
-// ดึงประวัติการรายงาน เฉพาะของ User คนนั้นๆ
+// ✅ [แก้ไข] ดึงประวัติการรายงาน เฉพาะของ User คนนั้นๆ + ดึง Status มาด้วย
 app.get('/api/reports/user/:name', (req, res) => {
     const userName = req.params.name;
     const sql = `
-        SELECT r.*, a.asset_type, a.brand_model, l.room_name
+        SELECT r.*, a.asset_type, a.brand_model, a.status, l.room_name 
         FROM reports r
         JOIN assets a ON r.asset_id = a.asset_id
         LEFT JOIN locations l ON a.location_id = l.location_id
@@ -340,7 +301,6 @@ app.get('/api/reports/user/:name', (req, res) => {
         res.json(results);
     });
 });
-
 // ดึงประวัติการตรวจสอบ เฉพาะของ Checker คนนั้นๆ
 app.get('/api/check-logs/checker/:name', (req, res) => {
     const checkerName = req.params.name;
@@ -357,13 +317,11 @@ app.get('/api/check-logs/checker/:name', (req, res) => {
         res.json(results);
     });
 });
-
 /* ==========================================
  * 8️⃣ CHECK LOGS
  * ========================================== */
 app.post('/api/check-logs', (req, res) => {
     const { asset_id, checker_id, result_status, remark, image_url } = req.body;
-
     db.query(
         `INSERT INTO check_logs 
          (asset_id, checker_id, result_status, remark, image_url, check_date)
@@ -378,7 +336,6 @@ app.post('/api/check-logs', (req, res) => {
         }
     );
 });
-
 // ⭐ แก้ปัญหา 404 /api/assets/Messi/check-logs
 app.get('/api/assets/:assetId/check-logs', (req, res) => {
     const assetId = req.params.assetId;
@@ -395,12 +352,10 @@ app.get('/api/assets/:assetId/check-logs', (req, res) => {
         res.json(results);
     });
 });
-
 // ⭐ [เพิ่ม] สำหรับลบประวัติการตรวจ (ถ้าคีย์ผิด)
 app.delete('/api/check-logs/:id', (req, res) => {
     db.query("DELETE FROM check_logs WHERE log_id = ?", [req.params.id], () => res.json({ success: true }));
 });
-
 // ลบรายการแจ้งซ่อม (Delete Report)
 app.delete('/api/reports/:id', (req, res) => {
     const reportId = req.params.id;
@@ -410,7 +365,6 @@ app.delete('/api/reports/:id', (req, res) => {
         res.json({ success: true });
     });
 });
-
 // ดึงประวัติการตรวจ "ทั้งหมด" สำหรับ Admin
 app.get('/api/check-logs/all', (req, res) => {
     const sql = `
@@ -425,7 +379,6 @@ app.get('/api/check-logs/all', (req, res) => {
         res.json(results);
     });
 });
-
 /* ==========================================
  * 9️⃣ DASHBOARD
  * ========================================== */
@@ -439,20 +392,16 @@ app.get('/api/dashboard-stats', (req, res) => {
         (err, results) => res.json(results[0])
     );
 });
-
 /* ==========================================
  * 🚀 GOOGLE LOGIN SYSTEM
  * ========================================== */
 const { OAuth2Client } = require('google-auth-library');
-
 // วาง Client ID ที่โบก๊อปมาตรงนี้เลยครับ
 const CLIENT_ID = '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com';
 const client = new OAuth2Client(CLIENT_ID);
-
 app.post('/api/google-login', async (req, res) => {
     const { idToken } = req.body;
     if (!idToken) return res.status(400).json({ message: "No token" });
-
     try {
         console.log("📩 Token received, verifying...");
         const ticket = await client.verifyIdToken({
@@ -461,27 +410,25 @@ app.post('/api/google-login', async (req, res) => {
         });
         const payload = ticket.getPayload();
         const { email, name } = payload;
-
         console.log(`👤 Google User: ${email}`);
-
         if (!email.endsWith('@rmutp.ac.th')) {
             return res.status(403).json({ success: false, message: "อีเมลไม่ถูกต้อง" });
         }
-
         // ใช้คำสั่ง SQL แบบดัก Error ละเอียด
         db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
             if (err) {
                 console.error("❌ SQL SELECT Error:", err.message);
                 return res.status(500).json({ message: "DB Error" });
             }
-
             if (results?.length > 0) {
                 console.log("✅ User exists, logging in...");
                 res.json({ success: true, user: results[0] });
             } else {
                 console.log("🆕 New user, creating account...");
+                // ✅ [แก้ไข] เพิ่ม field email เข้าไปใน object เพื่อให้ insert ผ่าน Not Null
                 const newUser = { 
-                    username: email, 
+                    username: email,
+                    email: email, 
                     fullname: name, 
                     role: 'user',
                     created_at: new Date()
@@ -500,7 +447,6 @@ app.post('/api/google-login', async (req, res) => {
         res.status(401).json({ success: false, message: error.message });
     }
 });
-
 /* ==========================================
  * 🔟 SERVER START
  * ========================================== */
