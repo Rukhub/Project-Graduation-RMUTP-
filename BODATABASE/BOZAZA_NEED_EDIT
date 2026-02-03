@@ -399,15 +399,29 @@ app.post('/api/google-login', async (req, res) => {
         if (!email.endsWith('@rmutp.ac.th')) {
             return res.status(403).json({ success: false, message: "อีเมลไม่ถูกต้อง" });
         }
-        db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
-            if (err) {
-                console.error("❌ SQL SELECT Error:", err.message);
-                return res.status(500).json({ message: "DB Error" });
-            }
-            if (results?.length > 0) {
-                console.log("✅ User exists, logging in...");
-                res.json({ success: true, user: results[0] });
-            } else {
+db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
+    if (err) {
+        console.error("❌ SQL SELECT Error:", err.message);
+        return res.status(500).json({ message: "DB Error" });
+    }
+
+    if (results?.length > 0) {
+        const user = results[0];
+
+        // 🛡️ [หัวใจสำคัญ] ต้องเช็กก่อน และต้องใช้ return เพื่อไม่ให้โค้ดทำงานต่อ
+        if (user.is_approved !== 1) { 
+            console.warn(`🔒 บล็อกการเข้าถึง: ${user.email} (Status: ${user.is_approved})`);
+            return res.status(403).json({ 
+                success: false, 
+                message: "บัญชีของคุณกำลังรอการอนุมัติ" 
+            });
+        }
+
+        // ✅ ถ้าผ่านเช็กข้างบน ถึงจะอนุญาตให้ล็อกอินสำเร็จ
+        console.log("✅ อนุมัติแล้ว ล็อกอินสำเร็จ");
+        return res.json({ success: true, user: user });
+
+    } else {
                 console.log("🆕 New user, creating account...");
                 const newUser = {
                     username: email,
@@ -416,6 +430,7 @@ app.post('/api/google-login', async (req, res) => {
                     google_id: sub,
                     photo_url: picture,
                     role: 'user',
+                    is_approved: 0, // 🔥 [FIX] ตั้งค่าเริ่มต้นเป็น 0 (รออนุมัติ)
                     created_at: new Date()
                 };
                 db.query("INSERT INTO users SET ?", newUser, (insertErr, result) => {
@@ -432,6 +447,32 @@ app.post('/api/google-login', async (req, res) => {
         res.status(401).json({ success: false, message: error.message });
     }
 });
+
+/* ==========================================
+ * user
+ * ========================================== */
+// 1. ดึงรายชื่อคนที่ "รออนุมัติ" (is_approved = 0)
+app.get('/api/users/pending', (req, res) => {
+    db.query("SELECT * FROM users WHERE is_approved = 0 ORDER BY created_at DESC", 
+        (err, results) => {
+            if (err) return res.status(500).json(err);
+            res.json(results);
+        }
+    );
+});
+
+// 2. กดอนุมัติผู้ใช้งาน (เปลี่ยน 0 เป็น 1)
+app.put('/api/users/:id/approve', (req, res) => {
+    const userId = req.params.id;
+    const sql = "UPDATE users SET is_approved = 1 WHERE user_id = ?";
+    
+    db.query(sql, [userId], (err, result) => {
+        if (err) return res.status(500).json(err);
+        console.log(`🔓 อนุมัติ User ID: ${userId} เรียบร้อยแล้ว`);
+        res.json({ success: true, message: "อนุมัติการใช้งานสำเร็จ!" });
+    });
+});
+
 /* ==========================================
  * 🔟 SERVER START
  * ========================================== */
