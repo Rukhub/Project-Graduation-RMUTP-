@@ -99,15 +99,52 @@ app.put('/api/users/approve-all', (req, res) => {
 });
 // ✅ อนุมัติ User ที่เลือก (รับ Array ของ user_ids)
 app.put('/api/users/approve-selected', (req, res) => {
-    const { userIds } = req.body; // รับ Array [22, 23, 24] มาจากรัก
+    // ดักจับข้อมูล: บางทีรักอาจจะส่งมาในชื่ออื่น หรือไม่ได้ส่งมาในรูปแบบ Array
+    const userIds = req.body.userIds || req.body.user_ids; 
+
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-        return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User' });
+        console.error("❌ ข้อมูลที่ได้รับจากหน้าบ้าน:", req.body); // พิมพ์ดูในจอดำว่ารักส่งอะไรมา
+        return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User หรือส่งรูปแบบข้อมูลไม่ถูกต้อง' });
     }
+
     const placeholders = userIds.map(() => '?').join(',');
     db.query(`UPDATE users SET is_approved = 1 WHERE user_id IN (${placeholders})`, userIds, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, message: `อนุมัติ ${result.affectedRows} คนเรียบร้อยจ้า` });
+        console.log(`✅ อนุมัติกลุ่มสำเร็จ: ${result.affectedRows} คน`);
+        res.json({ success: true, message: `อนุมัติสำเร็จ ${result.affectedRows}` });
     });
+});
+// ✅ 1. ลบผู้ใช้งาน "ทั้งหมด" ที่ยังไม่ได้รับการอนุมัติ (Clean up คนค้าง)
+app.delete('/api/users/delete-all-pending', (req, res) => {
+    db.query(
+        "DELETE FROM users WHERE is_approved = 0 OR is_approved IS NULL",
+        (err, result) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            console.log(`🗑️ ลบคนรออนุมัติทั้งหมด ${result.affectedRows} คนสำเร็จ`);
+            res.json({ success: true, message: `ลบคนรออนุมัติทั้งหมดเรียบร้อยจ้า` });
+        }
+    );
+});
+
+// ✅ 2. ลบผู้ใช้งาน "เฉพาะที่เลือก" (Multi-Delete)
+// รักต้องส่ง body มาเป็น: { "userIds": [22, 25, 30] }
+app.delete('/api/users/delete-selected', (req, res) => {
+    const userIds = req.body.userIds || req.body.user_ids;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'ไม่ได้เลือกคนที่จะลบจ้า' });
+    }
+
+    const placeholders = userIds.map(() => '?').join(',');
+    db.query(
+        `DELETE FROM users WHERE user_id IN (${placeholders})`,
+        userIds,
+        (err, result) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            console.log(`🗑️ ลบกลุ่มผู้ใช้สำเร็จ: ${result.affectedRows} คน`);
+            res.json({ success: true, message: `ลบผู้ใช้ที่เลือก ${result.affectedRows} คนเรียบร้อยจ้า` });
+        }
+    );
 });
 // อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
 app.put('/api/users/:id/role', (req, res) => {
