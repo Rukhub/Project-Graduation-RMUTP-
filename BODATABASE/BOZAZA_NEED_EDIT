@@ -1,6 +1,6 @@
 /**
  * ==========================================
- * 🚀 BACKEND FINAL STRUCTURE
+ * 🚀 BACKEND FINAL STRUCTURE (Clean & Fixed)
  * Assets / Locations / Reports / Check-Logs / Users
  * ==========================================
  */
@@ -65,27 +65,20 @@ app.get('/api/users/all', (req, res) => {
 });
 // อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
 app.put('/api/users/:id/role', (req, res) => {
-    const { role } = req.body; // รับค่า 'admin', 'checker', หรือ 'user'
+    const { role } = req.body;
     const userId = req.params.id;
-    // 🛡️ กฎเหล็ก: เช็กก่อนว่าถ้าจะลดสิทธิ์ Admin ต้องเหลือ Admin อย่างน้อย 1 คนเสมอ
     const checkAdminSql = "SELECT COUNT(*) as adminCount FROM users WHERE role = 'admin'";
-    
     db.query(checkAdminSql, (err, results) => {
         if (err) return res.status(500).json(err);
-        
         const adminCount = results[0].adminCount;
-        // ถ้าพยายามเปลี่ยน admin คนสุดท้ายเป็นอย่างอื่น จะไม่อนุญาต
         if (role !== 'admin' && adminCount <= 1) {
-            // เช็กเพิ่มว่าคนที่กำลังโดนเปลี่ยนเนี่ยเป็น admin หรือเปล่า
             db.query("SELECT role FROM users WHERE user_id = ?", [userId], (err, userResult) => {
                 if (userResult[0].role === 'admin') {
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: "ไม่สามารถลดสิทธิ์ Admin คนสุดท้ายได้จ้า!" 
+                    return res.status(400).json({
+                        success: false,
+                        message: "ไม่สามารถลดสิทธิ์ Admin คนสุดท้ายได้จ้า!"
                     });
                 }
-                
-                // ถ้าไม่ใช่ admin คนสุดท้าย ก็อัปเดตปกติ
                 performUpdate();
             });
         } else {
@@ -101,7 +94,6 @@ app.put('/api/users/:id/role', (req, res) => {
         }
     });
 });
-// ลบผู้ใช้งาน (กรณีมีอีเมลแอบเนียนเข้ามา)
 app.delete('/api/users/:id', (req, res) => {
     const userId = req.params.id;
     db.query("DELETE FROM users WHERE user_id = ?", [userId], (err) => {
@@ -148,7 +140,6 @@ app.delete('/api/locations/:id', (req, res) => {
 app.get('/api/assets', (req, res) => {
     const sql = `
         SELECT a.*, l.room_name, l.floor,
-        -- ถ้าในช่อง created_by เป็นค่าว่าง ให้โชว์ 'ไม่ระบุ' แต่ถ้ามีค่า ให้พยายามหาชื่อจากตาราง users
         COALESCE(
             (SELECT u.fullname FROM users u WHERE CAST(u.user_id AS CHAR) = a.created_by OR u.username = a.created_by LIMIT 1),
             a.created_by,
@@ -167,7 +158,6 @@ app.get('/api/assets', (req, res) => {
         res.json(results);
     });
 });
-// assets by room
 app.get('/api/assets/room/:locationId', (req, res) => {
     db.query(
         "SELECT * FROM assets WHERE location_id = ?",
@@ -175,11 +165,9 @@ app.get('/api/assets/room/:locationId', (req, res) => {
         (err, results) => res.json(results)
     );
 });
-// create asset (รองรับทั้งแบบอัปโหลดไฟล์ และแบบส่ง URL แยกตามที่รักบอก)
 app.post('/api/assets', upload.single('image'), (req, res) => {
-    // รับ created_by จากรัก (ซึ่งรักต้องส่งชื่อ 'Admin Bo' หรือ email มาให้โบ)
     const { asset_id, asset_type, brand_model, location_id, status, created_by, image_url } = req.body;
-    let finalImageUrl = image_url || ''; 
+    let finalImageUrl = image_url || '';
     if (req.file) {
         finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
@@ -188,17 +176,15 @@ app.post('/api/assets', upload.single('image'), (req, res) => {
         (asset_id, asset_type, brand_model, location_id, status, image_url, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
-    // บันทึกค่า created_by ที่ได้จากแอป ถ้าแอปไม่ส่งมาค่อยใช้ 'System'
     db.query(
-        sql, 
-        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', finalImageUrl, created_by || 'Admin_Bo'], 
+        sql,
+        [asset_id, asset_type, brand_model, location_id, status || 'รอตรวจสอบ', finalImageUrl, created_by || 'Admin_Bo'],
         (err, result) => {
             if (err) return res.status(500).json(err);
             res.json({ success: true });
         }
     );
 });
-// update asset (แก้ไข: เอา created_by ออกจากการอัปเดต เพื่อรักษาชื่อผู้สร้างเดิม)
 app.put('/api/assets/:id', upload.single('image'), (req, res) => {
     const { asset_type, brand_model, location_id, status, image_url } = req.body;
     const assetId = req.params.id;
@@ -206,7 +192,6 @@ app.put('/api/assets/:id', upload.single('image'), (req, res) => {
     if (req.file) {
         finalImage = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-    // ลบ created_by=? ออกจาก SQL เพื่อไม่ให้คนสร้างคนแรกโดนเขียนทับ
     const sql = `
         UPDATE assets 
         SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=?
@@ -225,13 +210,11 @@ app.put('/api/assets/:id', upload.single('image'), (req, res) => {
         }
     );
 });
-// ⭐ แก้ปัญหา 404 POST /api/upload
 app.post('/api/upload', upload.single('image'), (req, res) => {
     if (!req.file) return res.status(400).json({ message: "ไม่ได้เลือกรูปภาพ" });
     const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     res.json({ success: true, image_url: imageUrl });
 });
-// delete asset
 app.delete('/api/assets/:id', (req, res) => {
     db.query(
         "DELETE FROM assets WHERE asset_id = ?",
@@ -240,21 +223,19 @@ app.delete('/api/assets/:id', (req, res) => {
     );
 });
 /* ==========================================
- * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำของรัก
+ * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำ (แยก Status)
  * ========================================== */
 app.post('/api/reports', upload.single('image'), (req, res) => {
-    // 1. เพิ่ม image_url เข้ามาในตัวรับค่า (Destructuring)
     const { asset_id, reporter_name, fullname, issue_detail, details, image_url } = req.body;
     const reporter = reporter_name || fullname || 'ไม่ระบุชื่อ';
     const detail = issue_detail || details || 'ไม่ได้ระบุรายละเอียด';
-    // 2. ปรับการดึง URL รูปภาพให้ฉลาดขึ้น
-    let imageUrl = image_url || ''; 
+    let imageUrl = image_url || '';
     if (!imageUrl && req.file) {
         imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
-    // 3. เพิ่ม Error Handling เพื่อเช็กว่าบันทึกสำเร็จไหม
-    const sql = `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date) 
-                 VALUES (?, ?, ?, ?, NOW())`;
+    // ⭐ [FIX] บันทึกสถานะ 'รอตรวจสอบ' ลงใน Report เสมอ
+    const sql = `INSERT INTO reports (asset_id, reporter_name, issue_detail, image_url, report_date, status) 
+                 VALUES (?, ?, ?, ?, NOW(), 'รอตรวจสอบ')`;
     db.query(sql, [asset_id, reporter, detail, imageUrl], (err) => {
         if (err) {
             console.error("❌ บันทึกไม่สำเร็จ:", err);
@@ -271,12 +252,11 @@ app.get('/api/assets/:assetId/reports', (req, res) => {
         (err, results) => res.json(results)
     );
 });
-// แก้ไขใน Section 7: GET /api/reports
 app.get('/api/reports', (req, res) => {
     const sql = `
         SELECT r.*, a.asset_type, a.brand_model, l.room_name,
-               r.status AS report_status, -- 🔥 ดึงสถานะเฉพาะของใบแจ้งซ่อมนี้
-               a.status AS asset_current_status -- ดึงสถานะปัจจุบันของตัวเครื่องมาดูคู่กัน
+               r.status AS report_status, 
+               a.status AS asset_current_status
         FROM reports r
         JOIN assets a ON r.asset_id = a.asset_id
         LEFT JOIN locations l ON a.location_id = l.location_id
@@ -287,12 +267,11 @@ app.get('/api/reports', (req, res) => {
         res.json(results);
     });
 });
-
-// ✅ [แก้ไข] ดึงประวัติการรายงาน เฉพาะของ User คนนั้นๆ + ดึง Status มาด้วย
+// ✅ [FIX] ดึงประวัติการรายงาน -> ใช้ r.status (สถานะในอดีต) แทน a.status (ปัจจุบัน)
 app.get('/api/reports/user/:name', (req, res) => {
     const userName = req.params.name;
     const sql = `
-        SELECT r.*, a.asset_type, a.brand_model, a.status, l.room_name 
+        SELECT r.*, a.asset_type, a.brand_model, r.status, l.room_name 
         FROM reports r
         JOIN assets a ON r.asset_id = a.asset_id
         LEFT JOIN locations l ON a.location_id = l.location_id
@@ -304,7 +283,6 @@ app.get('/api/reports/user/:name', (req, res) => {
         res.json(results);
     });
 });
-// ดึงประวัติการตรวจสอบ เฉพาะของ Checker คนนั้นๆ
 app.get('/api/check-logs/checker/:name', (req, res) => {
     const checkerName = req.params.name;
     const sql = `
@@ -321,7 +299,7 @@ app.get('/api/check-logs/checker/:name', (req, res) => {
     });
 });
 /* ==========================================
- * 8️⃣ CHECK LOGS
+ * 8️⃣ CHECK LOGS (ตรวจซ่อม)
  * ========================================== */
 app.post('/api/check-logs', (req, res) => {
     const { asset_id, checker_id, result_status, remark, image_url } = req.body;
@@ -331,35 +309,40 @@ app.post('/api/check-logs', (req, res) => {
          VALUES (?, ?, ?, ?, ?, NOW())`,
         [asset_id, checker_id, result_status, remark, image_url],
         () => {
+            // 1. อัปเดตสถานะที่ตัวอุปกรณ์
             db.query(
                 "UPDATE assets SET status=? WHERE asset_id=?",
                 [result_status, asset_id],
-                () => res.json({ success: true })
+                () => {
+                    // ⭐ [FIX] ถ้าซ่อมเสร็จ ให้ไปปิดจ๊อบใน Reports ด้วย!
+                    if (result_status === 'ปกติ' || result_status === 'ใช้งานได้') {
+                        db.query(
+                            "UPDATE reports SET status='ดำเนินการเสร็จสิ้น' WHERE asset_id=? AND status='รอตรวจสอบ'",
+                            [asset_id]
+                        );
+                    }
+                    res.json({ success: true });
+                }
             );
         }
     );
 });
-// ⭐ แก้ปัญหา 404 /api/assets/Messi/check-logs
 app.get('/api/assets/:assetId/check-logs', (req, res) => {
     const assetId = req.params.assetId;
-    // ใช้ SQL ค้นหาแบบตรงตัวหรือใกล้เคียงเพื่อรองรับ Messi/MESSI
     const sql = `
         SELECT cl.*, u.fullname 
         FROM check_logs cl 
         JOIN users u ON cl.checker_id = u.user_id 
         WHERE LOWER(cl.asset_id) = LOWER(?) 
         ORDER BY cl.check_date DESC`;
-        
     db.query(sql, [assetId], (err, results) => {
         if (err) return res.status(500).json(err);
         res.json(results);
     });
 });
-// ⭐ [เพิ่ม] สำหรับลบประวัติการตรวจ (ถ้าคีย์ผิด)
 app.delete('/api/check-logs/:id', (req, res) => {
     db.query("DELETE FROM check_logs WHERE log_id = ?", [req.params.id], () => res.json({ success: true }));
 });
-// ลบรายการแจ้งซ่อม (Delete Report)
 app.delete('/api/reports/:id', (req, res) => {
     const reportId = req.params.id;
     db.query("DELETE FROM reports WHERE report_id = ?", [reportId], (err) => {
@@ -368,7 +351,6 @@ app.delete('/api/reports/:id', (req, res) => {
         res.json({ success: true });
     });
 });
-// ดึงประวัติการตรวจ "ทั้งหมด" สำหรับ Admin
 app.get('/api/check-logs/all', (req, res) => {
     const sql = `
         SELECT cl.*, u.fullname AS checker_name, a.asset_type, a.brand_model
@@ -399,7 +381,6 @@ app.get('/api/dashboard-stats', (req, res) => {
  * 🚀 GOOGLE LOGIN SYSTEM
  * ========================================== */
 const { OAuth2Client } = require('google-auth-library');
-// วาง Client ID ที่โบก๊อปมาตรงนี้เลยครับ
 const CLIENT_ID = '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com';
 const client = new OAuth2Client(CLIENT_ID);
 app.post('/api/google-login', async (req, res) => {
@@ -412,12 +393,12 @@ app.post('/api/google-login', async (req, res) => {
             audience: CLIENT_ID,
         });
         const payload = ticket.getPayload();
-        const { email, name } = payload;
+        // ⭐ [FIX] ดึง sub (google_id) และ picture มาใช้ด้วย
+        const { email, name, sub, picture } = payload;
         console.log(`👤 Google User: ${email}`);
         if (!email.endsWith('@rmutp.ac.th')) {
             return res.status(403).json({ success: false, message: "อีเมลไม่ถูกต้อง" });
         }
-        // ใช้คำสั่ง SQL แบบดัก Error ละเอียด
         db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
             if (err) {
                 console.error("❌ SQL SELECT Error:", err.message);
@@ -428,19 +409,18 @@ app.post('/api/google-login', async (req, res) => {
                 res.json({ success: true, user: results[0] });
             } else {
                 console.log("🆕 New user, creating account...");
-                // ✅ [แก้ไข] เพิ่ม field email เข้าไปใน object เพื่อให้ insert ผ่าน Not Null
-                const newUser = { 
+                const newUser = {
                     username: email,
-                    email: email, 
+                    email: email,
                     fullname: name,
-                    google_id: sub,    // 🔥 เอากลับมาแล้ว!
-                    photo_url: picture, // 🔥 รูปโปรไฟล์ก็กลับมาแล้ว!
+                    google_id: sub,
+                    photo_url: picture,
                     role: 'user',
                     created_at: new Date()
                 };
                 db.query("INSERT INTO users SET ?", newUser, (insertErr, result) => {
                     if (insertErr) {
-                        console.error("❌ SQL INSERT Error:", insertErr.message); // ดูตรงนี้ในจอดำนะโบ!
+                        console.error("❌ SQL INSERT Error:", insertErr.message);
                         return res.status(500).json({ message: "Insert Fail" });
                     }
                     res.json({ success: true, user: { user_id: result.insertId, ...newUser } });
