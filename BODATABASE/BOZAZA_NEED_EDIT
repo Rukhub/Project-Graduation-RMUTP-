@@ -100,13 +100,11 @@ app.put('/api/users/approve-all', (req, res) => {
 // ✅ อนุมัติ User ที่เลือก (รับ Array ของ user_ids)
 app.put('/api/users/approve-selected', (req, res) => {
     // ดักจับข้อมูล: บางทีรักอาจจะส่งมาในชื่ออื่น หรือไม่ได้ส่งมาในรูปแบบ Array
-    const userIds = req.body.userIds || req.body.user_ids; 
-
+    const userIds = req.body.userIds || req.body.user_ids;
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
         console.error("❌ ข้อมูลที่ได้รับจากหน้าบ้าน:", req.body); // พิมพ์ดูในจอดำว่ารักส่งอะไรมา
         return res.status(400).json({ success: false, message: 'ไม่ได้เลือก User หรือส่งรูปแบบข้อมูลไม่ถูกต้อง' });
     }
-
     const placeholders = userIds.map(() => '?').join(',');
     db.query(`UPDATE users SET is_approved = 1 WHERE user_id IN (${placeholders})`, userIds, (err, result) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -125,16 +123,13 @@ app.delete('/api/users/delete-all-pending', (req, res) => {
         }
     );
 });
-
 // ✅ 2. ลบผู้ใช้งาน "เฉพาะที่เลือก" (Multi-Delete)
 // รักต้องส่ง body มาเป็น: { "userIds": [22, 25, 30] }
 app.delete('/api/users/delete-selected', (req, res) => {
     const userIds = req.body.userIds || req.body.user_ids;
-
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
         return res.status(400).json({ success: false, message: 'ไม่ได้เลือกคนที่จะลบจ้า' });
     }
-
     const placeholders = userIds.map(() => '?').join(',');
     db.query(
         `DELETE FROM users WHERE user_id IN (${placeholders})`,
