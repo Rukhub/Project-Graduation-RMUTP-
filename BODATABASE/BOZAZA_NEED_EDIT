@@ -73,6 +73,58 @@ app.get('/api/users/all', (req, res) => {
     );
 });
 
+// อัปเดตสิทธิ์ผู้ใช้งาน (เปลี่ยน Role)
+app.put('/api/users/:id/role', (req, res) => {
+    const { role } = req.body; // รับค่า 'admin', 'checker', หรือ 'user'
+    const userId = req.params.id;
+
+    // 🛡️ กฎเหล็ก: เช็กก่อนว่าถ้าจะลดสิทธิ์ Admin ต้องเหลือ Admin อย่างน้อย 1 คนเสมอ
+    const checkAdminSql = "SELECT COUNT(*) as adminCount FROM users WHERE role = 'admin'";
+    
+    db.query(checkAdminSql, (err, results) => {
+        if (err) return res.status(500).json(err);
+        
+        const adminCount = results[0].adminCount;
+
+        // ถ้าพยายามเปลี่ยน admin คนสุดท้ายเป็นอย่างอื่น จะไม่อนุญาต
+        if (role !== 'admin' && adminCount <= 1) {
+            // เช็กเพิ่มว่าคนที่กำลังโดนเปลี่ยนเนี่ยเป็น admin หรือเปล่า
+            db.query("SELECT role FROM users WHERE user_id = ?", [userId], (err, userResult) => {
+                if (userResult[0].role === 'admin') {
+                    return res.status(400).json({ 
+                        success: false, 
+                        message: "ไม่สามารถลดสิทธิ์ Admin คนสุดท้ายได้จ้า!" 
+                    });
+                }
+                
+                // ถ้าไม่ใช่ admin คนสุดท้าย ก็อัปเดตปกติ
+                performUpdate();
+            });
+        } else {
+            performUpdate();
+        }
+
+        function performUpdate() {
+            const updateSql = "UPDATE users SET role = ? WHERE user_id = ?";
+            db.query(updateSql, [role, userId], (err) => {
+                if (err) return res.status(500).json(err);
+                console.log(`🔐 เปลี่ยนสิทธิ์ User ID: ${userId} เป็น ${role} สำเร็จ`);
+                res.json({ success: true });
+            });
+        }
+    });
+});
+
+// ลบผู้ใช้งาน (กรณีมีอีเมลแอบเนียนเข้ามา)
+app.delete('/api/users/:id', (req, res) => {
+    const userId = req.params.id;
+    db.query("DELETE FROM users WHERE user_id = ?", [userId], (err) => {
+        if (err) return res.status(500).json(err);
+        console.log(`🗑️ ลบ User ID: ${userId} ออกจากระบบแล้ว`);
+        res.json({ success: true });
+    });
+});
+
 /* ==========================================
  * 5️⃣ LOCATIONS (ROOMS)
  * ========================================== */
@@ -113,13 +165,15 @@ app.delete('/api/locations/:id', (req, res) => {
  * 6️⃣ ASSETS (CRUD)
  * ========================================== */
 
-// ดึงข้อมูลครุภัณฑ์ทั้งหมด (แบบสมบูรณ์เพื่อรัก)
 app.get('/api/assets', (req, res) => {
     const sql = `
         SELECT a.*, l.room_name, l.floor,
-        -- ดึงชื่อผู้สร้าง (เปรียบเทียบตัวเลขตรงๆ ได้เลยหลังจากแก้ DB)
-        (SELECT u.fullname FROM users u WHERE u.user_id = a.created_by LIMIT 1) AS created_by_name,
-        -- ดึงชื่อผู้ตรวจสอบล่าสุด
+        -- ถ้าในช่อง created_by เป็นค่าว่าง ให้โชว์ 'ไม่ระบุ' แต่ถ้ามีค่า ให้พยายามหาชื่อจากตาราง users
+        COALESCE(
+            (SELECT u.fullname FROM users u WHERE CAST(u.user_id AS CHAR) = a.created_by OR u.username = a.created_by LIMIT 1),
+            a.created_by,
+            'ไม่ระบุผู้สร้าง'
+        ) AS created_by_name,
         (SELECT u2.fullname FROM check_logs cl 
          JOIN users u2 ON cl.checker_id = u2.user_id
          WHERE cl.asset_id = a.asset_id 
@@ -170,20 +224,34 @@ app.post('/api/assets', upload.single('image'), (req, res) => {
     );
 });
 
-// update asset
+// update asset (แก้ไข: เอา created_by ออกจากการอัปเดต เพื่อรักษาชื่อผู้สร้างเดิม)
 app.put('/api/assets/:id', upload.single('image'), (req, res) => {
     const { asset_type, brand_model, location_id, status, image_url } = req.body;
+    const assetId = req.params.id;
 
     let finalImage = image_url;
     if (req.file) {
         finalImage = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
 
+    // ลบ created_by=? ออกจาก SQL เพื่อไม่ให้คนสร้างคนแรกโดนเขียนทับ
+    const sql = `
+        UPDATE assets 
+        SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=?
+        WHERE asset_id=?
+    `;
+
     db.query(
-        `UPDATE assets SET asset_type=?, brand_model=?, location_id=?, status=?, image_url=? 
-         WHERE asset_id=?`,
-        [asset_type, brand_model, location_id, status, finalImage, req.params.id],
-        () => res.json({ success: true })
+        sql,
+        [asset_type, brand_model, location_id, status, finalImage, assetId],
+        (err, result) => {
+            if (err) {
+                console.error("❌ Update ล้มเหลว:", err);
+                return res.status(500).json(err);
+            }
+            console.log(`✅ อัปเดตข้อมูล (รักษาผู้สร้างเดิม) ID: ${assetId} สำเร็จ`);
+            res.json({ success: true });
+        }
     );
 });
 
@@ -251,6 +319,40 @@ app.get('/api/reports', (req, res) => {
         ORDER BY r.report_date DESC
     `;
     db.query(sql, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
+});
+
+// ดึงประวัติการรายงาน เฉพาะของ User คนนั้นๆ
+app.get('/api/reports/user/:name', (req, res) => {
+    const userName = req.params.name;
+    const sql = `
+        SELECT r.*, a.asset_type, a.brand_model, l.room_name
+        FROM reports r
+        JOIN assets a ON r.asset_id = a.asset_id
+        LEFT JOIN locations l ON a.location_id = l.location_id
+        WHERE r.reporter_name = ? OR (SELECT u.fullname FROM users u WHERE u.fullname = ?) = r.reporter_name
+        ORDER BY r.report_date DESC
+    `;
+    db.query(sql, [userName, userName], (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
+});
+
+// ดึงประวัติการตรวจสอบ เฉพาะของ Checker คนนั้นๆ
+app.get('/api/check-logs/checker/:name', (req, res) => {
+    const checkerName = req.params.name;
+    const sql = `
+        SELECT cl.*, u.fullname AS checker_name, a.asset_type, a.brand_model
+        FROM check_logs cl
+        JOIN users u ON cl.checker_id = u.user_id
+        JOIN assets a ON cl.asset_id = a.asset_id
+        WHERE u.fullname = ? OR u.username = ?
+        ORDER BY cl.check_date DESC
+    `;
+    db.query(sql, [checkerName, checkerName], (err, results) => {
         if (err) return res.status(500).json(err);
         res.json(results);
     });
@@ -349,7 +451,10 @@ const client = new OAuth2Client(CLIENT_ID);
 
 app.post('/api/google-login', async (req, res) => {
     const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ message: "No token" });
+
     try {
+        console.log("📩 Token received, verifying...");
         const ticket = await client.verifyIdToken({
             idToken: idToken,
             audience: CLIENT_ID,
@@ -357,35 +462,42 @@ app.post('/api/google-login', async (req, res) => {
         const payload = ticket.getPayload();
         const { email, name } = payload;
 
-        // 🛡️ ส่วนที่เพิ่มเข้าไป: เช็กโดเมนอีเมล
+        console.log(`👤 Google User: ${email}`);
+
         if (!email.endsWith('@rmutp.ac.th')) {
-            return res.status(403).json({ 
-                success: false, 
-                message: "ขออภัย! ระบบนี้อนุญาตให้เฉพาะอีเมล @rmutp.ac.th เท่านั้น" 
-            });
+            return res.status(403).json({ success: false, message: "อีเมลไม่ถูกต้อง" });
         }
 
-        // ถ้าผ่านเงื่อนไขอีเมลมหาลัยแล้ว ค่อยไปเช็กใน DB ต่อ
+        // ใช้คำสั่ง SQL แบบดัก Error ละเอียด
         db.query("SELECT * FROM users WHERE username = ?", [email], (err, results) => {
+            if (err) {
+                console.error("❌ SQL SELECT Error:", err.message);
+                return res.status(500).json({ message: "DB Error" });
+            }
+
             if (results?.length > 0) {
+                console.log("✅ User exists, logging in...");
                 res.json({ success: true, user: results[0] });
             } else {
+                console.log("🆕 New user, creating account...");
                 const newUser = { 
                     username: email, 
                     fullname: name, 
-                    role: 'user', 
-                    status: 'approved',
+                    role: 'user',
                     created_at: new Date()
                 };
-                db.query("INSERT INTO users SET ?", newUser, (err, result) => {
-                    if (err) return res.status(500).json(err);
+                db.query("INSERT INTO users SET ?", newUser, (insertErr, result) => {
+                    if (insertErr) {
+                        console.error("❌ SQL INSERT Error:", insertErr.message); // ดูตรงนี้ในจอดำนะโบ!
+                        return res.status(500).json({ message: "Insert Fail" });
+                    }
                     res.json({ success: true, user: { user_id: result.insertId, ...newUser } });
                 });
             }
         });
     } catch (error) {
-        console.error("❌ Google Auth Fail:", error);
-        res.status(401).json({ success: false, message: "Google Login Failed" });
+        console.error("❌ Google Auth ล้มเหลว:", error.message);
+        res.status(401).json({ success: false, message: error.message });
     }
 });
 
