@@ -310,6 +310,42 @@ app.delete('/api/assets/:id', (req, res) => {
         () => res.json({ success: true })
     );
 });
+app.put('/api/assets/move', (req, res) => {
+    const { asset_id, new_location_id } = req.body;
+    
+    if (!asset_id || !new_location_id) {
+        return res.status(400).json({ success: false, message: "ข้อมูลไม่ครบนะจ๊ะ" });
+    }
+
+    const sql = "UPDATE assets SET location_id = ? WHERE asset_id = ?";
+    db.query(sql, [new_location_id, asset_id], (err, result) => {
+        if (err) {
+            console.error("❌ ย้ายห้องล้มเหลว:", err.sqlMessage);
+            return res.status(500).json({ success: false, message: err.sqlMessage });
+        }
+        console.log(`📦 ย้ายเครื่อง ${asset_id} ไปห้อง ID: ${new_location_id} แล้ว`);
+        res.json({ success: true, message: "ย้ายห้องสำเร็จแล้วจ้า" });
+    });
+});
+
+// ✅ 2. ย้ายห้องเป็นกลุ่ม (ยกพวกย้ายห้อง)
+// Body: { "assetIds": ["A1", "A2"], "new_location_id": 5 }
+app.put('/api/assets/move-selected', (req, res) => {
+    const { assetIds, new_location_id } = req.body;
+
+    if (!assetIds || !Array.isArray(assetIds) || !new_location_id) {
+        return res.status(400).json({ success: false, message: "เลือกเครื่องและห้องใหม่ด้วยนะจ๊ะ" });
+    }
+
+    const placeholders = assetIds.map(() => '?').join(',');
+    const sql = `UPDATE assets SET location_id = ? WHERE asset_id IN (${placeholders})`;
+    
+    db.query(sql, [new_location_id, ...assetIds], (err, result) => {
+        if (err) return res.status(500).json(err);
+        console.log(`📦 ย้ายกลุ่มเครื่อง ${result.affectedRows} เครื่องไปห้อง ID: ${new_location_id}`);
+        res.json({ success: true, message: `ย้ายทั้งหมด ${result.affectedRows} เครื่องสำเร็จ!` });
+    });
+});
 /* ==========================================
  * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำ (แยก Status)
  * ========================================== */
