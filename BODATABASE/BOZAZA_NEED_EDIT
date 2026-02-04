@@ -343,6 +343,10 @@ app.put('/api/assets/move', (req, res) => {
 app.put('/api/assets/move-selected', (req, res) => {
     const { assetIds, new_location_id } = req.body;
 
+    console.log('📦 === MOVE DEBUG ===');
+    console.log('📦 Received assetIds:', assetIds);
+    console.log('📦 Received new_location_id:', new_location_id);
+
     if (!assetIds || !Array.isArray(assetIds) || !new_location_id) {
         return res.status(400).json({ success: false, message: "เลือกเครื่องและห้องใหม่ด้วยนะจ๊ะ" });
     }
@@ -350,8 +354,19 @@ app.put('/api/assets/move-selected', (req, res) => {
     const placeholders = assetIds.map(() => '?').join(',');
     const sql = `UPDATE assets SET location_id = ? WHERE asset_id IN (${placeholders})`;
 
+    console.log('📦 SQL Query:', sql);
+    console.log('📦 SQL Params:', [new_location_id, ...assetIds]);
+
     db.query(sql, [new_location_id, ...assetIds], (err, result) => {
-        if (err) return res.status(500).json(err);
+        if (err) {
+            console.error('❌ SQL Error:', err);
+            return res.status(500).json(err);
+        }
+
+        console.log('📦 SQL Result:', result);
+        console.log('📦 Rows affected:', result.affectedRows);
+        console.log('📦 Changed rows:', result.changedRows);
+
         console.log(`📦 ย้ายกลุ่มเครื่อง ${result.affectedRows} เครื่องไปห้อง ID: ${new_location_id}`);
         res.json({ success: true, message: `ย้ายทั้งหมด ${result.affectedRows} เครื่องสำเร็จ!` });
     });
