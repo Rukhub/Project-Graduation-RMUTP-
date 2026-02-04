@@ -249,17 +249,20 @@ app.get('/api/assets/room/:locationId', (req, res) => {
 app.post('/api/assets', upload.single('image'), (req, res) => {
     // 1. รับค่าจากหน้าบ้าน (Destructuring)
     const { asset_id, asset_type, brand_model, location_id, status, created_by, image_url } = req.body;
+
     // 2. จัดการเรื่องรูปภาพ
     let finalImageUrl = image_url || '';
     if (req.file) {
         finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
+
     // 3. คำสั่ง SQL (เช็กชื่อคอลัมน์ให้ตรงกับ DB โบนะ)
     const sql = `
         INSERT INTO assets 
         (asset_id, asset_type, brand_model, location_id, status, image_url, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
+
     // 4. ยิง Query (ต้องอยู่ในปีกกาของ app.post เท่านั้น!)
     db.query(
         sql,
@@ -310,9 +313,16 @@ app.delete('/api/assets/:id', (req, res) => {
         () => res.json({ success: true })
     );
 });
+/* ==========================================
+ * 6.1️⃣ ASSET MOVEMENT (ย้ายห้อง)
+ * ========================================== */
+
+// ✅ 1. ย้ายห้องทีละเครื่อง
+// รักต้องยิงมาที่: PUT /api/assets/move
+// Body: { "asset_id": "NADECH", "new_location_id": 5 }
 app.put('/api/assets/move', (req, res) => {
     const { asset_id, new_location_id } = req.body;
-    
+
     if (!asset_id || !new_location_id) {
         return res.status(400).json({ success: false, message: "ข้อมูลไม่ครบนะจ๊ะ" });
     }
@@ -339,16 +349,13 @@ app.put('/api/assets/move-selected', (req, res) => {
 
     const placeholders = assetIds.map(() => '?').join(',');
     const sql = `UPDATE assets SET location_id = ? WHERE asset_id IN (${placeholders})`;
-    
+
     db.query(sql, [new_location_id, ...assetIds], (err, result) => {
         if (err) return res.status(500).json(err);
         console.log(`📦 ย้ายกลุ่มเครื่อง ${result.affectedRows} เครื่องไปห้อง ID: ${new_location_id}`);
         res.json({ success: true, message: `ย้ายทั้งหมด ${result.affectedRows} เครื่องสำเร็จ!` });
     });
 });
-/* ==========================================
- * 7️⃣ REPORTS (แจ้งซ่อม) - แก้ไขตามคำแนะนำ (แยก Status)
- * ========================================== */
 app.post('/api/reports', upload.single('image'), (req, res) => {
     const { asset_id, reporter_name, fullname, issue_detail, details, image_url } = req.body;
     const reporter = reporter_name || fullname || 'ไม่ระบุชื่อ';
