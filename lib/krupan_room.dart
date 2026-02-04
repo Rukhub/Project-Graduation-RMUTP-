@@ -34,6 +34,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
   String selectedTypeFilter = 'ทั้งหมด';
   String selectedStatusFilter = 'ทั้งหมด';
 
+  // Selection Mode State
+  bool isSelectionMode = false;
+  Set<String> selectedAssetIds = {};
+
   // รายการสถานะ
   List<Map<String, dynamic>> statusList = [
     {'name': 'ปกติ', 'color': Color(0xFF99CD60), 'icon': Icons.check_circle},
@@ -175,12 +179,58 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white, size: 30),
-            onPressed: () {
-              _scaffoldKey.currentState?.openDrawer();
-            },
-          ),
+          if (isSelectionMode)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  if (selectedAssetIds.length == filteredEquipmentList.length) {
+                    selectedAssetIds.clear();
+                  } else {
+                    selectedAssetIds = filteredEquipmentList
+                        .map((e) => (e['asset_id'] ?? e['id']).toString())
+                        .toSet();
+                  }
+                });
+              },
+              child: Text(
+                selectedAssetIds.length == filteredEquipmentList.length
+                    ? 'ไม่เลือก'
+                    : 'เลือกหมด',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+
+          if (!isSelectionMode && ApiService().currentUser?['role'] == 'admin')
+            IconButton(
+              icon: const Icon(Icons.checklist, color: Colors.white),
+              tooltip: 'เลือกรายการ',
+              onPressed: () {
+                setState(() {
+                  isSelectionMode = true;
+                  selectedAssetIds.clear();
+                });
+              },
+            ),
+
+          if (!isSelectionMode)
+            IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white, size: 30),
+              onPressed: () {
+                _scaffoldKey.currentState?.openDrawer();
+              },
+            ),
+
+          if (isSelectionMode)
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () {
+                setState(() {
+                  isSelectionMode = false;
+                  selectedAssetIds.clear();
+                });
+              },
+            ),
+
           const SizedBox(width: 10),
         ],
         toolbarHeight: 80,
@@ -267,7 +317,26 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                 const SizedBox(height: 140),
               ],
             ),
-      floatingActionButton: ApiService().currentUser?['role'] == 'admin'
+      floatingActionButton: isSelectionMode
+          ? SizedBox(
+              width: 140,
+              height: 56,
+              child: FloatingActionButton.extended(
+                onPressed: selectedAssetIds.isEmpty ? null : _showMoveDialog,
+                backgroundColor: selectedAssetIds.isEmpty
+                    ? Colors.grey
+                    : const Color(0xFF9A2C2C),
+                icon: const Icon(Icons.drive_file_move, color: Colors.white),
+                label: Text(
+                  'ย้าย (${selectedAssetIds.length})',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            )
+          : ApiService().currentUser?['role'] == 'admin'
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -549,6 +618,17 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
       ),
       child: InkWell(
         onTap: () async {
+          if (isSelectionMode) {
+            final id = (equipment['asset_id'] ?? equipment['id']).toString();
+            setState(() {
+              if (selectedAssetIds.contains(id)) {
+                selectedAssetIds.remove(id);
+              } else {
+                selectedAssetIds.add(id);
+              }
+            });
+            return;
+          }
           final result = await Navigator.push<Map<String, dynamic>>(
             context,
             MaterialPageRoute(
@@ -568,6 +648,20 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
           child: Row(
             children: [
+              // Checkbox for Selection Mode
+              if (isSelectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Icon(
+                    selectedAssetIds.contains(
+                          (equipment['asset_id'] ?? equipment['id']).toString(),
+                        )
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    color: const Color(0xFF9A2C2C),
+                  ),
+                ),
+
               // Icon
               Container(
                 padding: const EdgeInsets.all(10),
@@ -2106,6 +2200,236 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
         );
       },
     );
+  }
+
+  // ✅ NEW: Move Dialog - Select Target Room
+  Future<void> _showMoveDialog() async {
+    // Fetch all locations
+    final locations = await ApiService().getLocations();
+
+    if (!mounted) return;
+
+    // Filter out current room
+    final otherRooms = locations.where((loc) {
+      return loc['location_id'] != widget.locationId;
+    }).toList();
+
+    if (otherRooms.isEmpty) {
+      _showCustomSnackBar('ไม่มีห้องอื่นให้ย้าย', isSuccess: false);
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle bar
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF9A2C2C).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.drive_file_move,
+                        color: Color(0xFF9A2C2C),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'เลือกห้องปลายทาง',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'ย้าย ${selectedAssetIds.length} รายการ',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Divider(color: Colors.grey.shade200, height: 1),
+
+              // Room List
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  itemCount: otherRooms.length,
+                  itemBuilder: (context, index) {
+                    final room = otherRooms[index];
+                    final roomName = room['room_name'] ?? 'ไม่ระบุ';
+                    final floor = room['floor'] ?? '';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () async {
+                            Navigator.pop(context);
+                            await _executeMoveAssets(room['location_id']);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 50,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFF9A2C2C,
+                                    ).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.meeting_room,
+                                    color: Color(0xFF9A2C2C),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        roomName,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        floor,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 16,
+                                  color: Colors.grey.shade400,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ✅ Execute Move Assets
+  Future<void> _executeMoveAssets(int targetLocationId) async {
+    final assetIdsList = selectedAssetIds.toList();
+
+    // 🔍 DEBUG: Print what we're sending
+    debugPrint('🚚 === MOVE ASSETS DEBUG ===');
+    debugPrint('🚚 Asset IDs to move: $assetIdsList');
+    debugPrint('🚚 Target Location ID: $targetLocationId');
+    debugPrint('🚚 Current Room ID: ${widget.locationId}');
+
+    try {
+      debugPrint('🚚 Calling ApiService.moveSelectedAssets...');
+      final result = await ApiService().moveSelectedAssets(
+        assetIdsList,
+        targetLocationId,
+      );
+
+      debugPrint('🚚 API Response: $result');
+
+      if (result['success'] == true) {
+        debugPrint('✅ Move successful!');
+        _showCustomSnackBar(
+          result['message'] ?? 'ย้ายสำเร็จ!',
+          isSuccess: true,
+        );
+
+        // Exit selection mode and refresh
+        setState(() {
+          isSelectionMode = false;
+          selectedAssetIds.clear();
+        });
+
+        debugPrint('🚚 Reloading data...');
+        await _loadData();
+        debugPrint('🚚 Data reloaded!');
+      } else {
+        debugPrint('❌ Move failed: ${result['message']}');
+        _showCustomSnackBar(
+          result['message'] ?? 'ย้ายล้มเหลว',
+          isSuccess: false,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Exception during move: $e');
+      _showCustomSnackBar('เกิดข้อผิดพลาด: $e', isSuccess: false);
+    }
   }
 
   // Empty State

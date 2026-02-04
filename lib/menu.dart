@@ -21,7 +21,7 @@ class MenuScreen extends StatefulWidget {
 class _MenuScreenState extends State<MenuScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
- // Dashboard Stats
+  // Dashboard Stats
   int myScansCount = 0;
   int goodConditionCount = 0;
   int myReportsCount = 0;
@@ -72,7 +72,7 @@ class _MenuScreenState extends State<MenuScreen> {
       final currentUser = ApiService().currentUser;
       final reporterName =
           currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
-      
+
       // Load user specific reports
       final data = await ApiService().getMyReports(reporterName);
 
@@ -144,10 +144,7 @@ class _MenuScreenState extends State<MenuScreen> {
           child: Column(
             children: [
               // 1. Dashboard Section (Switch based on Role)
-              if (isAdmin)
-                _buildAdminDashboard()
-              else
-                _buildUserDashboard(),
+              if (isAdmin) _buildAdminDashboard() else _buildUserDashboard(),
 
               const SizedBox(height: 20),
 
@@ -193,19 +190,19 @@ class _MenuScreenState extends State<MenuScreen> {
                     );
                   },
                 ),
-                 MenuItem(
-                imageUrl:
-                    'https://cdn-icons-png.flaticon.com/256/4960/4960785.png',
-                title: 'แจ้งปัญหา / ขัดข้อง',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ReportProblemScreen(),
-                    ),
-                  );
-                },
-              ),
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/256/4960/4960785.png',
+                  title: 'แจ้งปัญหา / ขัดข้อง',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ReportProblemScreen(),
+                      ),
+                    );
+                  },
+                ),
               ],
 
               // เมนูแตกต่างตาม Role (ส่วนท้าย)
@@ -391,17 +388,16 @@ class _MenuScreenState extends State<MenuScreen> {
         const SizedBox(height: 12),
         // Secondary Action: Browse Rooms
         _buildFullWidthActionCard(
-            title: 'ค้นหาครุภัณฑ์ตามรายห้อง',
-            icon: Icons.inventory_2,
-            color: const Color(0xFF99CD60), // Green
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const KrupanScreen(),
-                ),
-              );
-            }),
+          title: 'ค้นหาครุภัณฑ์ตามรายห้อง',
+          icon: Icons.inventory_2,
+          color: const Color(0xFF99CD60), // Green
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const KrupanScreen()),
+            );
+          },
+        ),
 
         const SizedBox(height: 30),
 
@@ -419,12 +415,12 @@ class _MenuScreenState extends State<MenuScreen> {
             ),
             GestureDetector(
               onTap: () {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const MyReportsScreen(),
-                      ),
-                    );
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MyReportsScreen(),
+                  ),
+                );
               },
               child: Text(
                 'ดูทั้งหมด >',
@@ -452,8 +448,11 @@ class _MenuScreenState extends State<MenuScreen> {
             ),
             child: Column(
               children: [
-                Icon(Icons.check_circle_outline,
-                    size: 48, color: Colors.green.shade200),
+                Icon(
+                  Icons.check_circle_outline,
+                  size: 48,
+                  color: Colors.green.shade200,
+                ),
                 const SizedBox(height: 10),
                 const Text(
                   'ยังไม่มีรายการแจ้งซ่อม\nอุปกรณ์ของคุณปกติดี!',
@@ -566,7 +565,7 @@ class _MenuScreenState extends State<MenuScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-           BoxShadow(
+          BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
@@ -592,16 +591,20 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 const SizedBox(width: 16),
                 Text(
-                    title,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
+                  title,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
                   ),
+                ),
                 const Spacer(),
-                Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: Colors.grey.shade400,
+                ),
               ],
             ),
           ),
@@ -614,11 +617,15 @@ class _MenuScreenState extends State<MenuScreen> {
   Widget _buildMiniReportCard(Map<String, dynamic> report) {
     String status = report['status'] ?? 'Unknown';
     // ⭐ NEW: ดึงสถานะปัจจุบันของ Asset
-    String assetCurrentStatus = report['asset_current_status']?.toString() ?? '';
+    String assetCurrentStatus =
+        report['asset_current_status']?.toString() ?? '';
 
     // ⭐ FIX: ถ้า Asset กำลังซ่อม ให้ถือว่าเป็น 'กำลังซ่อม' (ถึงแม้ Report จะเป็น Pending)
-    if ((status == 'รอดำเนินการ' || status == 'รอตรวจสอบ' || status == 'ชำรุด') &&
-        (assetCurrentStatus == 'อยู่ระหว่างซ่อม' || assetCurrentStatus == 'กำลังซ่อม')) {
+    if ((status == 'รอดำเนินการ' ||
+            status == 'รอตรวจสอบ' ||
+            status == 'ชำรุด') &&
+        (assetCurrentStatus == 'อยู่ระหว่างซ่อม' ||
+            assetCurrentStatus == 'กำลังซ่อม')) {
       status = 'อยู่ระหว่างซ่อม';
     }
 
@@ -626,10 +633,14 @@ class _MenuScreenState extends State<MenuScreen> {
     String statusLabel;
 
     // ✅ รองรับสถานะใหม่จาก Backend
-    if (status == 'ปกติ' || status == 'ซ่อมเสร็จแล้ว' || status == 'ดำเนินการเสร็จสิ้น') {
+    if (status == 'ปกติ' ||
+        status == 'ซ่อมเสร็จแล้ว' ||
+        status == 'ดำเนินการเสร็จสิ้น') {
       statusColor = Colors.green;
       statusLabel = 'ซ่อมเสร็จแล้ว';
-    } else if (status == 'อยู่ระหว่างซ่อม' || status == 'กำลังดำเนินการ' || status == 'กำลังซ่อม') {
+    } else if (status == 'อยู่ระหว่างซ่อม' ||
+        status == 'กำลังดำเนินการ' ||
+        status == 'กำลังซ่อม') {
       statusColor = Colors.orange;
       statusLabel = 'กำลังซ่อม';
     } else {
@@ -640,7 +651,7 @@ class _MenuScreenState extends State<MenuScreen> {
 
     return Card(
       elevation: 0,
-       shape: RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: Colors.grey.shade200),
       ),
@@ -662,8 +673,8 @@ class _MenuScreenState extends State<MenuScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
         subtitle: Text(
-           '${report['asset_id'] ?? ''} • ${_formatDate(report['report_date'])}',
-           style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          '${report['asset_id'] ?? ''} • ${_formatDate(report['report_date'])}',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -681,18 +692,18 @@ class _MenuScreenState extends State<MenuScreen> {
           ),
         ),
         onTap: () {
-             // Navigate to specific detail if possible, currently sticking to MyReports for simplicity
-             // or could navigate to EquipmentDetailScreen like in MyReportsScreen
-             // For now, let's open MyReportsScreen as it's safer
-             Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const MyReportsScreen()),
-             );
+          // Navigate to specific detail if possible, currently sticking to MyReports for simplicity
+          // or could navigate to EquipmentDetailScreen like in MyReportsScreen
+          // For now, let's open MyReportsScreen as it's safer
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const MyReportsScreen()),
+          );
         },
       ),
     );
   }
-  
+
   String _formatDate(dynamic dateValue) {
     if (dateValue == null) return '';
     try {
@@ -702,7 +713,6 @@ class _MenuScreenState extends State<MenuScreen> {
       return '';
     }
   }
-
 }
 
 class SummaryCard extends StatelessWidget {

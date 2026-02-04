@@ -337,7 +337,59 @@ class ApiService {
       return {'success': false, 'message': data['message'] ?? 'เพิ่มไม่สำเร็จ'};
     } catch (e) {
       debugPrint('🚨 Add asset error: $e');
-      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
+      return {'success': false, 'message': 'Connection error'};
+    }
+  }
+
+  // ✅ 6.1 Move Asset (Single)
+  Future<Map<String, dynamic>> moveAsset(
+    String assetId,
+    int newLocationId,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/assets/move'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'asset_id': assetId,
+          'new_location_id': newLocationId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {'success': false, 'message': 'Failed to move asset'};
+      }
+    } catch (e) {
+      debugPrint('🚨 Move asset error: $e');
+      return {'success': false, 'message': 'Connection error'};
+    }
+  }
+
+  // ✅ 6.2 Move Selected Assets (Bulk)
+  Future<Map<String, dynamic>> moveSelectedAssets(
+    List<String> assetIds,
+    int newLocationId,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/assets/move-selected'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'assetIds': assetIds,
+          'new_location_id': newLocationId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {'success': false, 'message': 'Failed to move assets'};
+      }
+    } catch (e) {
+      debugPrint('🚨 Move assets error: $e');
+      return {'success': false, 'message': 'Connection error'};
     }
   }
 

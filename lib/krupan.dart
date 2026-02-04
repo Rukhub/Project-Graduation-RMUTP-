@@ -1142,11 +1142,242 @@ class _KrupanScreenState extends State<KrupanScreen> {
     );
   }
 
-  // Dialog ยืนยันลบห้อง
-  void _showDeleteRoomDialog(Map<String, dynamic> room) {
-    String roomName = room['room_name'];
-    int locationId = int.parse(room['location_id'].toString());
+  // Dialog ยืนยันลบห้อง (Enhanced with Real-time Asset Count Check)
+  void _showDeleteRoomDialog(Map<String, dynamic> room) async {
+    // 1. แสดง Loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => const Center(child: CircularProgressIndicator()),
+    );
 
+    try {
+      String roomName = room['room_name'];
+      int locationId = int.parse(room['location_id'].toString());
+
+      // 2. ดึงข้อมูลครุภัณฑ์ล่าสุดจาก API
+      final assets = await ApiService().getAssetsByLocation(locationId);
+      final assetCount = assets.length;
+
+      // 3. ปิด Loading
+      if (mounted) Navigator.pop(context);
+
+      // 4. แสดง Dialog ตามเงื่อนไข
+      if (assetCount > 0) {
+        await _showDeleteRoomWithAssetsDialog(roomName, locationId, assetCount);
+      } else {
+        await _showDeleteEmptyRoomDialog(roomName, locationId);
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      _showBottomNotification(
+        message: 'เกิดข้อผิดพลาด: $e',
+        icon: Icons.error_outline,
+        color: Colors.red,
+      );
+    }
+  }
+
+  // Dialog สำหรับห้องที่มีครุภัณฑ์ (ต้องพิมพ์ Delete)
+  Future<void> _showDeleteRoomWithAssetsDialog(
+    String roomName,
+    int locationId,
+    int assetCount,
+  ) async {
+    final TextEditingController confirmController = TextEditingController();
+    String? errorMessage;
+    bool isDeleting = false;
+
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'ลบห้องและครุภัณฑ์',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.info_outline,
+                            color: Colors.orange,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'ห้อง "$roomName" มีครุภัณฑ์ $assetCount ชิ้น',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '⚠️ การลบห้องจะลบครุภัณฑ์ทั้งหมดด้วย',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.red,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'พิมพ์ "Delete" เพื่อยืนยันการลบ:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmController,
+                      decoration: InputDecoration(
+                        hintText: 'Delete',
+                        prefixIcon: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        errorText: errorMessage,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isDeleting
+                      ? null
+                      : () => Navigator.pop(context, false),
+                  child: Text(
+                    'ยกเลิก',
+                    style: TextStyle(
+                      color: isDeleting ? Colors.grey.shade300 : Colors.grey,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isDeleting
+                      ? null
+                      : () async {
+                          final input = confirmController.text.trim();
+                          if (input != 'Delete') {
+                            setDialogState(() {
+                              errorMessage = 'กรุณาพิมพ์ "Delete" ให้ถูกต้อง';
+                            });
+                            return;
+                          }
+                          setDialogState(() {
+                            isDeleting = true;
+                            errorMessage = null;
+                          });
+
+                          final result = await ApiService().deleteLocation(
+                            locationId,
+                          );
+
+                          if (context.mounted) {
+                            Navigator.pop(context, true);
+                            if (result['success'] == true) {
+                              _showBottomNotification(
+                                message:
+                                    'ลบห้อง "$roomName" และครุภัณฑ์ทั้งหมด ($assetCount ชิ้น) สำเร็จ',
+                                icon: Icons.delete_sweep,
+                                color: Colors.red,
+                              );
+                              setState(() {
+                                apiFloorRooms[selectedFloor]?.removeWhere(
+                                  (r) =>
+                                      r['location_id'].toString() ==
+                                      locationId.toString(),
+                                );
+                              });
+                            } else {
+                              _showBottomNotification(
+                                message:
+                                    result['message'] ?? 'ไม่สามารถลบห้องได้',
+                                icon: Icons.error_outline,
+                                color: Colors.red,
+                              );
+                            }
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: isDeleting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text('ลบ', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog สำหรับห้องว่าง (แบบธรรมดา)
+  Future<void> _showDeleteEmptyRoomDialog(
+    String roomName,
+    int locationId,
+  ) async {
     showDialog(
       context: context,
       builder: (context) {
@@ -1178,21 +1409,15 @@ class _KrupanScreenState extends State<KrupanScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                // เรียก API ลบห้อง
                 final result = await ApiService().deleteLocation(locationId);
-
                 if (context.mounted) {
-                  Navigator.pop(context); // ปิด Dialog
-
+                  Navigator.pop(context);
                   if (result['success'] == true) {
-                    // แสดง Notification ด้านล่าง (สีแดง)
                     _showBottomNotification(
                       message: 'ลบห้อง "$roomName" สำเร็จ',
                       icon: Icons.delete_sweep,
                       color: Colors.red,
                     );
-
-                    // ลบออกจาก List
                     setState(() {
                       apiFloorRooms[selectedFloor]?.removeWhere(
                         (r) =>
@@ -1201,7 +1426,6 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       );
                     });
                   } else {
-                    // แสดง Notification ด้านล่าง (สีแดง - Error)
                     _showBottomNotification(
                       message: result['message'] ?? 'ไม่สามารถลบห้องได้',
                       icon: Icons.error_outline,
@@ -1216,10 +1440,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: const Text(
-                'ลบ',
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
+              child: const Text('ลบ', style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -1227,7 +1448,6 @@ class _KrupanScreenState extends State<KrupanScreen> {
     );
   }
 
-  // === Dialog ใส่รหัสผ่านก่อนลบชั้นที่มีห้อง ===
   Future<bool> _showPasswordConfirmDialog(int floor) async {
     final TextEditingController passwordController = TextEditingController();
     String? errorMessage;
