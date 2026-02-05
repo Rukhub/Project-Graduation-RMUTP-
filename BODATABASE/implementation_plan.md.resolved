@@ -1,0 +1,213 @@
+# Report History UI Redesign - Implementation Plan
+
+## Goal
+Design and implement a comprehensive Report History UI that displays all fields from `reports_history` collection, supports status transitions (1→2→3→4), allows image uploads, and enforces admin-only restrictions.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Status Transition Logic (One-way Flow)**
+> - **1 → 2**: Admin accepts repair job (sets `worker_id`, `start_repair_at`)
+> - **2 → 3**: Admin marks repair complete (sets `finished_at`)
+> - **2 → 4**: Admin marks repair impossible (sets `remark`, `finished_at`)
+> - **1 → 4**: Admin cancels report (sets `remark`, `finished_at`)
+>
+> **Status 3 and 4 are CLOSED** - Only Admin can view/edit these.
+
+> [!WARNING]
+> **Role Clarification**
+> - **Admin (`role: 1`)** = Both System Admin AND Technician (Worker)
+> - **User (`role != 1`)** = Reporter only
+> - In a single report: `reporter_id` and `worker_id` should be different people
+
+## Proposed Changes
+
+### UI Screens
+
+#### 1. Report List Screen (`report_history_screen.dart` - NEW)
+
+**Purpose**: Display all reports with filtering by status
+
+**Features**:
+- **Filter Chips**: "ทั้งหมด", "รอรับงาน (1)", "กำลังซ่อม (2)", "ซ่อมเสร็จ (3)", "ยกเลิก/ไม่สำเร็จ (4)"
+- **Report Cards**: Show:
+  - Asset ID
+  - Issue summary (truncated)
+  - Status badge with color
+  - Reported at timestamp
+  - Image thumbnail (if exists)
+- **Access Control**:
+  - Admin: See all statuses
+  - User: See only their own reports (Status 1, 2 only)
+
+**UI Mockup**:
+```
+┌─────────────────────────────────────┐
+│  📋 ประวัติการแจ้งซ่อม               │
+├─────────────────────────────────────┤
+│ [ทั้งหมด] [รอรับ·1] [ซ่อม·2] ...   │
+├─────────────────────────────────────┤
+│ ┌─────────────────────────────────┐ │
+│ │ 🖥️ 104-1-4120-001-...  [รอรับ] │ │
+│ │ จอเปิดไม่ติด                    │ │
+│ │ 📅 5 ก.พ. 2026 16:00          🖼│ │
+│ └─────────────────────────────────┘ │
+└─────────────────────────────────────┘
+```
+
+---
+
+#### 2. Report Detail Screen (`report_detail_screen.dart` - NEW)
+
+**Purpose**: Full CRUD for report data (Admin only can edit Status 2+)
+
+**Layout Sections**:
+
+1. **Header**
+   - Asset ID (large, bold)
+   - Status Badge (color-coded)
+   - Edit button (Admin only)
+
+2. **Problem Section**
+   - Issue text (full)
+   - Reported at timestamp
+   - Reporter name (fetch from `users` collection via `reporter_id`)
+
+3. **Image Section**
+   - Display `image_url` if exists
+   - Upload capability (if Admin and Status = 1 or 2)
+
+4. **Repair Section** (Show if Status ≥ 2)
+   - Worker name (fetch via `worker_id`)
+   - Start repair at timestamp
+   - Finished at timestamp (if Status 3 or 4)
+
+5. **Remark Section** (Show if Status = 4)
+   - Remark text (why repair failed)
+
+6. **Action Buttons** (Admin only)
+   - **Status 1**: "รับงานซ่อม" → Change to Status 2
+   - **Status 2**: "ซ่อมเสร็จ" → Change to Status 3
+   - **Status 2**: "ซ่อมไม่ได้" → Show remark dialog → Change to Status 4
+   - **Status 1**: "ยกเลิก" → Show remark dialog → Change to Status 4
+
+**UI Mockup**:
+```
+┌─────────────────────────────────────┐
+│ ← 104-1-4120-001-...    [รอรับงาน] │
+├─────────────────────────────────────┤
+│ 📋 ปัญหาที่แจ้ง                     │
+│ "จอเปิดไม่ติด"                      │
+│ 👤 แจ้งโดย: นาย A                   │
+│ 📅 5 ก.พ. 2026 16:00                │
+├─────────────────────────────────────┤
+│ 🖼️ รูปภาพหลักฐาน                   │
+│ [Image Preview or "ไม่มีรูป"]       │
+│ [+ เพิ่มรูป] (Admin only)           │
+├─────────────────────────────────────┤
+│ [รับงานซ่อม] (Admin, Status 1 only)│
+└─────────────────────────────────────┘
+```
+
+---
+
+#### 3. Status Transition Dialogs
+
+**Purpose**: Capture additional data when changing status
+
+**Dialog 1: Accept Repair (1 → 2)**
+- Auto-set `worker_id` = current admin UID
+- Auto-set `start_repair_at` = now
+- Confirm button
+
+**Dialog 2: Mark Complete (2 → 3)**
+- Auto-set `finished_at` = now
+- Confirm button
+
+**Dialog 3: Mark Failed (2 → 4 or 1 → 4)**
+- Input: `remark` (required)
+- Auto-set `finished_at` = now
+- Confirm button
+
+---
+
+### Data Flow
+
+```mermaid
+graph TD
+    A[User Creates Report] -->|Status = 1| B[reports_history]
+    B --> C{Admin Action}
+    C -->|Accept| D[Status 2<br/>Set worker_id, start_repair_at]
+    D -->|Complete| E[Status 3<br/>Set finished_at]
+    D -->|Failed| F[Status 4<br/>Set remark, finished_at]
+    C -->|Cancel| F
+```
+
+---
+
+### Component Breakdown
+
+#### [NEW] `lib/screens/report_history_screen.dart`
+- StreamBuilder from `reports_history` collection
+- Filter by status
+- Role-based query:
+  - Admin: all reports
+  - User: `where('reporter_id', isEqualTo: currentUserId)`
+
+#### [NEW] `lib/screens/report_detail_screen.dart`
+- Display all report fields
+- Fetch user names from `users` collection
+- Admin-only edit mode
+- Status transition buttons
+
+#### [NEW] `lib/widgets/report_card.dart`
+- Reusable card widget for report list
+- Status badge with colors:
+  - Status 1: Orange (รอรับงาน)
+  - Status 2: Blue (กำลังซ่อม)
+  - Status 3: Green (ซ่อมเสร็จ)
+  - Status 4: Grey (ยกเลิก/ไม่สำเร็จ)
+
+#### [NEW] `lib/widgets/status_transition_dialog.dart`
+- Accept repair dialog
+- Complete repair dialog
+- Failed repair dialog (with remark input)
+
+#### [MODIFY] [lib/services/firebase_service.dart](file:///c:/Users/Sutthamet/Documents/flutter_projects/ticket_app/lib/services/firebase_service.dart)
+- `getReportsStream({int? statusFilter, String? userId})` - Get reports with filters
+- `getReportById(String docId)` - Get single report
+- `updateReportStatus(String docId, int newStatus, {Map<String, dynamic>? extraData})` - Handle status transitions
+- `uploadReportImage(File image, String assetId)` - Upload image to Firebase Storage
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+flutter analyze lib/screens/report_history_screen.dart
+flutter analyze lib/screens/report_detail_screen.dart
+flutter analyze lib/widgets/report_card.dart
+```
+
+### Manual Verification
+1. **User Flow**:
+   - User creates report → Verify data in Firestore
+   - User views their reports → Verify filter works
+   - User cannot see Status 3/4 reports
+
+2. **Admin Flow**:
+   - Admin sees all reports
+   - Admin accepts repair (1→2) → Verify `worker_id`, `start_repair_at` set
+   - Admin marks complete (2→3) → Verify `finished_at` set
+   - Admin marks failed (2→4) → Verify `remark`, `finished_at` set
+   - Admin cancels (1→4) → Verify `remark`, `finished_at` set
+
+3. **Image Upload**:
+   - Upload image → Verify URL in Firestore
+   - Display image in detail screen
+
+4. **Edge Cases**:
+   - Empty `image_url` → Show placeholder
+   - Long `issue` text → Proper truncation/wrapping
+   - Missing `remark` on Status 4 → Should not happen (enforced in dialog)
