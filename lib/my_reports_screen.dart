@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'api_service.dart';
+import 'services/firebase_service.dart';
 import 'equipment_detail_screen.dart';
+import 'app_drawer.dart';
+import 'screens/report_detail_screen.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
@@ -16,9 +21,12 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
 
   // สถิติ
   int totalReports = 0;
-  int pendingCount = 0; // ชำรุด = รอดำเนินการ
-  int repairingCount = 0; // อยู่ระหว่างซ่อม = กำลังซ่อม
-  int fixedCount = 0; // ปกติ = ซ่อมเสร็จแล้ว
+  int pendingCount = 0;
+  int repairingCount = 0;
+  int completedCount = 0;
+  int cancelledCount = 0;
+
+  String _selectedFilter = 'all';
 
   @override
   void initState() {
@@ -33,51 +41,32 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     });
 
     try {
-      // ใช้ชื่อผู้ใช้ที่ล็อกอินอยู่
-      final currentUser = ApiService().currentUser;
-      final reporterName =
-          currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
+      final user = FirebaseAuth.instance.currentUser;
+      final reporterId = user?.uid ?? '';
+      if (reporterId.trim().isEmpty) {
+        throw Exception('ไม่พบข้อมูลผู้ใช้ (UID)');
+      }
 
-      final data = await ApiService().getMyReports(reporterName);
+      final data = await FirebaseService().getReportsByReporterId(reporterId);
 
       // คำนวณสถิติ
       int pending = 0;
       int repairing = 0;
-      int fixed = 0;
+      int completed = 0;
+      int cancelled = 0;
 
       for (var report in data) {
-        // ⭐ NEW: Check real-time asset status
-        final assetCurrentStatus = report['asset_current_status']?.toString();
-        var status = report['status']?.toString() ?? '';
-
-        // DEBUG PRINT
-        debugPrint(
-          '🔍 Report: ${report['report_id']} | Asset: ${report['asset_id']}',
+        final status = FirebaseService.reportStatusToCode(
+          report['report_status'],
         );
-        debugPrint('   - Report Status: $status');
-        debugPrint('   - Asset Current Status: $assetCurrentStatus');
-
-        // ถ้า Asset กำลังซ่อม แต่ Report ยังขึ้นรอ -> ให้ถือว่ากำลังซ่อม
-        if ((status == 'รอดำเนินการ' ||
-                status == 'รอตรวจสอบ' ||
-                status == 'ชำรุด') &&
-            (assetCurrentStatus == 'อยู่ระหว่างซ่อม' ||
-                assetCurrentStatus == 'กำลังซ่อม')) {
-          status = 'อยู่ระหว่างซ่อม';
-          report['status'] = status; // Update local data for display
-        }
-
-        // นับ 'ชำรุด' หรือค่าว่าง/null/รอดำเนินการ เป็น 'รอดำเนินการ'
-        if (status == 'ชำรุด' ||
-            status.isEmpty ||
-            status == 'รอตรวจสอบ' ||
-            status == 'null' ||
-            status == 'รอดำเนินการ') {
+        if (status == 1) {
           pending++;
-        } else if (status == 'อยู่ระหว่างซ่อม' || status == 'กำลังดำเนินการ') {
+        } else if (status == 2) {
           repairing++;
-        } else if (status == 'ปกติ' || status == 'ซ่อมเสร็จแล้ว') {
-          fixed++;
+        } else if (status == 3) {
+          completed++;
+        } else if (status == 4) {
+          cancelled++;
         }
       }
 
@@ -87,7 +76,8 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           totalReports = data.length;
           pendingCount = pending;
           repairingCount = repairing;
-          fixedCount = fixed;
+          completedCount = completed;
+          cancelledCount = cancelled;
           isLoading = false;
         });
       }
@@ -104,7 +94,12 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
   String _formatDate(dynamic dateValue) {
     if (dateValue == null) return '-';
     try {
-      final date = DateTime.parse(dateValue.toString());
+      DateTime date;
+      if (dateValue is Timestamp) {
+        date = dateValue.toDate();
+      } else {
+        date = DateTime.parse(dateValue.toString());
+      }
       // Format: dd/MM/yyyy HH:mm
       final day = date.day.toString().padLeft(2, '0');
       final month = date.month.toString().padLeft(2, '0');
@@ -117,52 +112,33 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     }
   }
 
-  // แปลงสถานะ Asset เป็นสถานะแสดงผลสำหรับ User
-  Map<String, dynamic> _getReportStatus(String assetStatus) {
-    switch (assetStatus) {
-      case 'ชำรุด':
-      case 'รอดำเนินการ': // เพิ่ม case ใหม่
-      case 'รอตรวจสอบ':
-        return {
-          'label': 'รอดำเนินการ',
-          'color': Colors.amber,
-          'icon': Icons.hourglass_empty,
-          'bgColor': Colors.amber.shade50,
-        };
-      case 'อยู่ระหว่างซ่อม':
-      case 'กำลังดำเนินการ': // เพิ่ม case ใหม่
-        return {
-          'label': 'กำลังซ่อม',
-          'color': Colors.orange,
-          'icon': Icons.build_circle,
-          'bgColor': Colors.orange.shade50,
-        };
-      case 'ปกติ':
-      case 'ซ่อมเสร็จแล้ว': // เพิ่ม case ใหม่
-        return {
-          'label': 'ซ่อมเสร็จแล้ว',
-          'color': Colors.green,
-          'icon': Icons.check_circle,
-          'bgColor': Colors.green.shade50,
-        };
-      default:
-        // กรณีไม่ระบุสถานะ หรือ status เป็น null ให้ถือว่าเป็น "รอการตรวจสอบ"
-        return {
-          'label': 'รอการตรวจสอบ',
-          'color': Colors.amber.shade700,
-          'icon': Icons.hourglass_top,
-          'bgColor': Colors.amber.shade50,
-        };
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final filteredReports = _applyFilter(reports, _selectedFilter);
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
+      drawer: const AppDrawer(),
       appBar: AppBar(
         backgroundColor: const Color(0xFF9A2C2C),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          Builder(
+            builder: (context) {
+              return IconButton(
+                tooltip: 'เมนู',
+                icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+                onPressed: () {
+                  Scaffold.of(context).openDrawer();
+                },
+              );
+            },
+          ),
+        ],
         title: const Text(
           'การแจ้งปัญหาของฉัน',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -185,12 +161,145 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSummarySection(),
+                    const SizedBox(height: 12),
+                    _buildFilterButtons(),
                     const SizedBox(height: 24),
-                    _buildReportsSection(),
+                    _buildReportsSection(filteredReports),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  List<Map<String, dynamic>> _applyFilter(
+    List<Map<String, dynamic>> source,
+    String filter,
+  ) {
+    if (filter == 'all') return source;
+    return source.where((r) {
+      final code = FirebaseService.reportStatusToCode(r['report_status']);
+      if (filter == 'pending') return code == 1;
+      if (filter == 'repairing') return code == 2;
+      if (filter == 'completed') return code == 3;
+      if (filter == 'cancelled') return code == 4;
+      return false;
+    }).toList();
+  }
+
+  Widget _buildFilterButtons() {
+    final items = <Map<String, dynamic>>[
+      {
+        'key': 'all',
+        'label': 'ทั้งหมด',
+        'color': Colors.blue,
+        'count': totalReports,
+      },
+      {
+        'key': 'pending',
+        'label': 'รอดำเนินการ',
+        'color': const Color(0xFFEF4444),
+        'count': pendingCount,
+      },
+      {
+        'key': 'repairing',
+        'label': 'กำลังซ่อม',
+        'color': const Color(0xFFFF9800),
+        'count': repairingCount,
+      },
+      {
+        'key': 'completed',
+        'label': 'ซ่อมเสร็จ',
+        'color': const Color(0xFF16A34A),
+        'count': completedCount,
+      },
+      {
+        'key': 'cancelled',
+        'label': 'ซ่อมไม่ได้',
+        'color': const Color(0xFF6B7280),
+        'count': cancelledCount,
+      },
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: items.map((it) {
+          final key = it['key'] as String;
+          final label = it['label'] as String;
+          final Color color = it['color'] as Color;
+          final int count = it['count'] as int;
+          final bool selected = _selectedFilter == key;
+          final bool isAll = key == 'all';
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () {
+                setState(() {
+                  _selectedFilter = key;
+                });
+              },
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isAll ? 16 : 14,
+                  vertical: isAll ? 10 : 9,
+                ),
+                decoration: BoxDecoration(
+                  color: selected ? color : Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: selected ? color : Colors.grey.shade200,
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: isAll ? 13 : 12,
+                        fontWeight: FontWeight.w800,
+                        color: selected ? Colors.white : Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? Colors.white.withValues(alpha: 0.25)
+                            : color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        count.toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          color: selected ? Colors.white : color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -210,49 +319,71 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                 color: Colors.grey.shade800,
               ),
             ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.grey.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.list_alt, size: 16, color: Colors.grey.shade600),
+                  const SizedBox(width: 6),
+                  Text(
+                    'ทั้งหมด $totalReports',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
-        Row(
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 2.25,
           children: [
-            Expanded(
-              child: _buildStatCard(
-                'ทั้งหมด',
-                totalReports.toString(),
-                Colors.blue,
-                Icons.list_alt,
-              ),
+            _buildStatCard(
+              'รอดำเนินการ',
+              pendingCount.toString(),
+              const Color(0xFFEF4444),
+              Icons.notification_important,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _buildStatCard(
-                'รอดำเนินการ',
-                pendingCount.toString(),
-                Colors.amber,
-                Icons.hourglass_empty,
-              ),
+            _buildStatCard(
+              'กำลังซ่อม',
+              repairingCount.toString(),
+              const Color(0xFFFF9800),
+              Icons.build_circle,
             ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                'กำลังซ่อม',
-                repairingCount.toString(),
-                Colors.orange,
-                Icons.build_circle,
-              ),
+            _buildStatCard(
+              'ซ่อมเสร็จ',
+              completedCount.toString(),
+              const Color(0xFF16A34A),
+              Icons.check_circle,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _buildStatCard(
-                'ซ่อมเสร็จแล้ว',
-                fixedCount.toString(),
-                Colors.green,
-                Icons.check_circle,
-              ),
+            _buildStatCard(
+              'ซ่อมไม่ได้',
+              cancelledCount.toString(),
+              const Color(0xFF6B7280),
+              Icons.cancel,
             ),
           ],
         ),
@@ -267,7 +398,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     IconData icon,
   ) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -282,29 +413,30 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: color, size: 24),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
                 ),
                 Text(
                   label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -314,7 +446,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     );
   }
 
-  Widget _buildReportsSection() {
+  Widget _buildReportsSection(List<Map<String, dynamic>> visibleReports) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -342,7 +474,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                '$totalReports รายการ',
+                '${visibleReports.length} รายการ',
                 style: const TextStyle(
                   color: Color(0xFF9A2C2C),
                   fontWeight: FontWeight.bold,
@@ -356,214 +488,218 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
         ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: reports.length,
+          itemCount: visibleReports.length,
           separatorBuilder: (context, index) => const SizedBox(height: 12),
-          itemBuilder: (context, index) => _buildReportCard(reports[index]),
+          itemBuilder: (context, index) {
+            final report = visibleReports[index];
+            return _buildUserReportCard(
+              report: report,
+              onTap: () {
+                final reportId = report['id']?.toString() ?? '';
+                if (reportId.trim().isEmpty) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ReportDetailScreen(
+                      reportId: reportId,
+                      userRole: 0,
+                      readOnly: true,
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
       ],
     );
   }
 
-  Widget _buildReportCard(Map<String, dynamic> report) {
-    final assetStatus = report['status']?.toString() ?? '';
-    final statusInfo = _getReportStatus(assetStatus);
+  String _statusTextForUser(dynamic status) {
+    final code = FirebaseService.reportStatusToCode(status);
+    if (code == 1) return 'รอดำเนินการ';
+    if (code == 2) return 'กำลังซ่อม';
+    if (code == 3) return 'ซ่อมเสร็จ';
+    if (code == 4) return 'ซ่อมไม่ได้';
+    return 'ไม่ทราบสถานะ';
+  }
 
-    final assetId = report['asset_id']?.toString() ?? '-';
-    final brandModel = report['brand_model']?.toString() ?? '-';
-    final assetType = report['asset_type']?.toString() ?? '-';
-    final issueDetail = report['issue_detail']?.toString() ?? '-';
-    final reportDate = _formatDate(report['report_date']);
-    final imageUrl = report['image_url']?.toString();
+  Color _statusColorForUser(dynamic status) {
+    final code = FirebaseService.reportStatusToCode(status);
+    if (code == 1) return const Color(0xFFEF4444);
+    if (code == 2) return const Color(0xFFFF9800);
+    if (code == 3) return const Color(0xFF16A34A);
+    if (code == 4) return const Color(0xFF6B7280);
+    return Colors.grey;
+  }
 
-    // ข้อมูลจาก API ใหม่ของโบ
-    final locationId = report['location_id'];
-    final roomName = report['room_name']?.toString() ?? '';
-    final floor = report['floor']?.toString() ?? '';
-    final reporterName = report['reporter_name']?.toString();
+  Color _statusBgColorForUser(dynamic status) {
+    final code = FirebaseService.reportStatusToCode(status);
+    if (code == 1) return const Color(0xFFFFEBEE);
+    if (code == 2) return const Color(0xFFFFF3E0);
+    if (code == 3) return const Color(0xFFE8F5E9);
+    if (code == 4) return const Color(0xFFF3F4F6);
+    return Colors.grey.shade100;
+  }
 
-    return GestureDetector(
-      onTap: () {
-        // นำทางไปหน้ารายละเอียดครุภัณฑ์ - ส่งข้อมูลครบ
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => EquipmentDetailScreen(
-              equipment: {
-                'asset_id': assetId,
-                'brand_model': brandModel,
-                'type': assetType,
-                'status': assetStatus,
-                'location_id': locationId,
-                'reporter_name': reporterName,
-                'reporterName': reporterName,
-                'issue_detail': issueDetail,
-                'reportReason': issueDetail,
-                'report_image': imageUrl,
-              },
-              roomName: roomName.isNotEmpty
-                  ? (floor.isNotEmpty
-                        ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})'
-                        : roomName)
-                  : 'ไม่ระบุห้อง',
-            ),
-          ),
-        );
-      },
+  String _formatReportedAt(Map<String, dynamic> report) {
+    final dynamic ts = report['reported_at'] ?? report['timestamp'];
+    return _formatDate(ts);
+  }
+
+  Widget _buildUserReportCard({
+    required Map<String, dynamic> report,
+    required VoidCallback onTap,
+  }) {
+    final dynamic status = FirebaseService.reportStatusToCode(
+      report['report_status'],
+    );
+    final Color statusColor = _statusColorForUser(status);
+    final Color statusBg = _statusBgColorForUser(status);
+    final String assetId = report['asset_id']?.toString() ?? 'ไม่ระบุรหัส';
+    final String issue =
+        (report['report_remark'] ??
+                report['remark_report'] ??
+                report['issue_detail'] ??
+                report['issue'])
+            ?.toString() ??
+        '-';
+    final String img = (report['report_image_url'])?.toString().trim() ?? '';
+    final String dateText = _formatReportedAt(report);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: Container(
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: (statusInfo['color'] as Color).withValues(alpha: 0.3),
+            color: statusColor.withValues(alpha: 0.25),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
-              offset: const Offset(0, 2),
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Column(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with status
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: statusInfo['bgColor'],
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(14),
-                  topRight: Radius.circular(14),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    statusInfo['icon'],
-                    color: statusInfo['color'],
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    statusInfo['label'],
-                    style: TextStyle(
-                      color: statusInfo['color'],
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    reportDate,
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                  ),
-                ],
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 64,
+                height: 64,
+                color: Colors.grey.shade100,
+                child: img.isNotEmpty
+                    ? Image.network(
+                        img,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.image_not_supported,
+                            color: Colors.grey.shade400,
+                          );
+                        },
+                      )
+                    : Icon(Icons.image_outlined, color: Colors.grey.shade400),
               ),
             ),
-            // Body
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Image or placeholder
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: imageUrl != null && imageUrl.isNotEmpty
-                        ? Image.network(
-                            imageUrl,
-                            width: 70,
-                            height: 70,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                _buildImagePlaceholder(),
-                          )
-                        : _buildImagePlaceholder(),
-                  ),
-                  const SizedBox(width: 16),
-                  // Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.qr_code_2,
-                              size: 16,
-                              color: Colors.grey.shade600,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              assetId,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          assetId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF111827),
+                          ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$assetType • $brandModel',
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusBg,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: statusColor.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          _statusTextForUser(status),
                           style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 13,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: statusColor,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.report_problem,
-                                size: 16,
-                                color: Colors.red.shade400,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  issueDetail,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  // Arrow
-                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                  const SizedBox(height: 6),
+                  if (issue.isNotEmpty) ...[
+                    Text(
+                      issue,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.access_time,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          dateText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: Colors.grey.shade400,
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildImagePlaceholder() {
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(Icons.image_outlined, color: Colors.grey.shade400, size: 30),
     );
   }
 

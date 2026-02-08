@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'menu.dart';
 import 'api_service.dart';
+import 'services/firebase_service.dart';
 import 'google_sign_in_service.dart';
 
-void main() {
+import 'package:firebase_core/firebase_core.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  // Ensure admin account exists on app start
+  await FirebaseService().ensureAdminAccountExists();
   runApp(const MyApp());
 }
 
@@ -45,7 +52,6 @@ class _LoginPageState extends State<LoginPage> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    // ตรวจสอบว่ากรอกข้อมูลครบหรือไม่
     if (username.isEmpty || password.isEmpty) {
       setState(() {
         _errorMessage = 'กรุณากรอก Username และ Password';
@@ -58,60 +64,44 @@ class _LoginPageState extends State<LoginPage> {
       _errorMessage = null;
     });
 
-    // เรียกใช้ ApiService เพื่อ Login
-    final user = await ApiService().login(username, password);
+    try {
+      final userModel = await FirebaseService().loginWithUsernamePassword(
+        username,
+        password,
+      );
 
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (user != null) {
-      // ตรวจสอบสถานะการอนุมัติ
-      bool isApproved = (user['is_approved'] == 1);
-
-      if (!isApproved) {
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Row(
-                children: [
-                  Icon(Icons.hourglass_empty, color: Colors.orange.shade700),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'รอการอนุมัติ',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              content: const Text(
-                'บัญชีนี้รอการอนุมัติจากแอดมินนะ\nโปรดติดต่อผู้ดูแลระบบ',
-                style: TextStyle(fontSize: 16),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'ตกลง',
-                    style: TextStyle(
-                      color: Color(0xFF9A2C2C),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-        return; // หยุดการทำงาน ไม่ไปต่อ
+      if (userModel == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Username หรือ Password ไม่ถูกต้อง';
+        });
+        return;
       }
 
-      // Login สำเร็จ และผ่านการอนุมัติ
-      // บันทึกข้อมูลผู้ใช้
-      ApiService().currentUser = user;
+      // Check if approved
+      if (!userModel.isApproved) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ กรุณาติดต่อแอดมิน';
+        });
+        return;
+      }
+
+      // Store user data in ApiService
+      ApiService().currentUser = {
+        'uid': userModel.uid,
+        'email': userModel.email,
+        'fullname': userModel.fullname,
+        'username': userModel.username,
+        'role': userModel.role == 1 ? 'admin' : 'user',
+        'role_num': userModel.role,
+        'photo_url': userModel.photoUrl,
+        'is_approved': userModel.isApproved,
+      };
+
+      setState(() {
+        _isLoading = false;
+      });
 
       if (mounted) {
         Navigator.pushReplacement(
@@ -119,10 +109,10 @@ class _LoginPageState extends State<LoginPage> {
           MaterialPageRoute(builder: (context) => const MenuScreen()),
         );
       }
-    } else {
-      // Login ไม่สำเร็จ
+    } catch (e) {
       setState(() {
-        _errorMessage = 'Username หรือ Password ไม่ถูกต้อง';
+        _isLoading = false;
+        _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
       });
     }
   }
@@ -417,7 +407,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// ล็อกอินด้วย Google Account (จำกัดเฉพาะ @rmutp.ac.th)
+  /// ล็อกอินด้วย Google Account (ร่วมกับ Firebase Firestore)
   void _handleGoogleLogin() async {
     setState(() {
       _isLoading = true;
@@ -425,10 +415,11 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // 1. เรียก Google Sign-In
-      final googleAccount = await GoogleSignInService().signInWithGoogle();
+      // 1. เรียก Google Sign-In และ Sign into Firebase
+      // คืนค่าเป็น User? จาก Firebase Auth
+      final firebaseUser = await GoogleSignInService().signInWithGoogle();
 
-      if (googleAccount == null) {
+      if (firebaseUser == null) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'ยกเลิกการล็อกอินด้วย Google';
@@ -436,85 +427,51 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // ⭐ 2. ดึง ID Token จาก Google Authentication
-      final googleAuth = await googleAccount.authentication;
-      final String? idToken = googleAuth.idToken;
-
-      if (idToken == null) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'ไม่สามารถรับ Token จาก Google ได้';
-        });
-        return;
-      }
-
-      // 3. ส่ง idToken ไปยัง Backend
-      final result = await ApiService().googleLogin(
-        googleId: googleAccount.id,
-        email: googleAccount.email,
-        displayName: googleAccount.displayName ?? 'Google User',
-        photoUrl: googleAccount.photoUrl,
-        idToken: idToken, // ⭐ ส่ง idToken เพิ่ม
+      // 2. ซิงค์ข้อมูลผู้ใช้กับ Firestore (ใช้ UID เป็น Doc ID)
+      // คืนค่าเป็น UserModel
+      final userModel = await FirebaseService().syncUserWithFirestore(
+        firebaseUser,
       );
 
       setState(() {
         _isLoading = false;
       });
 
-      if (result != null) {
-        // กรณีที่ 1: มี Error Message จาก Backend (403)
-        if (result['error'] == true) {
-          setState(() {
-            _errorMessage = result['message'] ?? 'เข้าใช้งานไม่ได้';
-          });
-          return;
-        }
-
-        // กรณีที่ 2: ลงทะเบียนใหม่สำเร็จ แต่ต้องรอ Admin อนุมัติ
-        if (result['pending_approval'] == true) {
-          setState(() {
-            _errorMessage =
-                result['message'] ?? 'กรุณารอแอดมินอนุมัติเข้าใช้งาน';
-          });
-          // ออกจากระบบ Google เพราะยังเข้าใช้งานไม่ได้
-          await GoogleSignInService().signOut();
-          return;
-        }
-
-        // กรณีที่ 3: Login สำเร็จ (มี user object)
-        if (result['user_id'] != null || result['email'] != null) {
-          // 🛡️ [SAFETY] เช็คอีกรอบเพื่อความชัวร์ (Frontend Guard)
-          if (result['is_approved'] != 1) {
-            setState(() {
-              _errorMessage = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ';
-            });
-            GoogleSignInService().signOut(); // Logout ทันที
-            return;
-          }
-
-          ApiService().currentUser = result;
-
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const MenuScreen()),
-            );
-          }
-        } else {
-          setState(() {
-            _errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
-          });
-        }
-      } else {
+      // 🛡️ [SAFETY] เช็คการอนุมัติ (เป็น boolean แล้ว)
+      if (!userModel.isApproved) {
         setState(() {
-          _errorMessage = 'ไม่สามารถเชื่อมต่อ Server ได้';
+          _errorMessage = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ กรุณาติดต่อแอดมิน';
         });
+        await GoogleSignInService().signOut();
+        return;
+      }
+
+      // 3. เก็บข้อมูลลงใน ApiService เพื่อใช้ในส่วนอื่นๆ ของแอป
+      // แปลงเป็น Map เพื่อความคงเดิมของตัวแปร ApiService().currentUser
+      ApiService().currentUser = {
+        'uid': userModel.uid,
+        'email': userModel.email,
+        'fullname': userModel.fullname,
+        'role': userModel.role == 1
+            ? 'admin'
+            : 'user', // Map back for UI compatibility if needed
+        'role_num': userModel.role,
+        'photo_url': userModel.photoUrl,
+        'is_approved': userModel.isApproved,
+      };
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MenuScreen()),
+        );
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
       });
+      debugPrint('🚨 Google Login Error: $e');
     }
   }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart' as mobile;
 
 import 'package:image_picker/image_picker.dart';
-import 'api_service.dart';
+import 'services/firebase_service.dart';
 import 'equipment_detail_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -115,26 +115,58 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
       debugPrint('🔍 QR Data: $qrData → Asset ID: $assetId');
 
-      final equipment = await ApiService().getAssetById(assetId);
+      // Use Firestore for faster, reliable lookup
+      final equipment = await FirebaseService().getAssetById(assetId);
 
       if (!mounted) return;
 
       if (equipment != null) {
-        final roomName =
-            equipment['location_name'] ??
-            equipment['location'] ??
-            equipment['room_name'] ??
-            'ไม่ระบุ';
+        final normalizedEquipment = <String, dynamic>{...equipment};
+        normalizedEquipment['asset_id'] =
+            normalizedEquipment['asset_id'] ?? assetId;
+        normalizedEquipment['asset_name'] =
+            normalizedEquipment['asset_name'] ??
+            normalizedEquipment['name_asset'];
+        normalizedEquipment['type'] =
+            normalizedEquipment['type'] ?? normalizedEquipment['asset_type'];
 
-        debugPrint('✅ เจอครุภัณฑ์: ${equipment['asset_id']} ห้อง: $roomName');
+        String roomName =
+            normalizedEquipment['location_name']?.toString() ??
+            normalizedEquipment['location']?.toString() ??
+            normalizedEquipment['room_name']?.toString() ??
+            '';
 
-        Navigator.push(
+        if (roomName.trim().isEmpty || roomName == 'ไม่ระบุ') {
+          final locationId = normalizedEquipment['location_id'];
+          final location = await FirebaseService().getLocationById(locationId);
+          if (location != null && location.roomName.trim().isNotEmpty) {
+            roomName = location.roomName;
+          }
+        }
+
+        if (roomName.trim().isEmpty) {
+          roomName = 'ไม่ระบุ';
+        }
+
+        normalizedEquipment['room_name'] = roomName;
+
+        debugPrint(
+          '✅ เจอครุภัณฑ์: ${normalizedEquipment['asset_id']} ห้อง: $roomName',
+        );
+
+        await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) =>
-                EquipmentDetailScreen(equipment: equipment, roomName: roomName),
+            builder: (context) => EquipmentDetailScreen(
+              equipment: normalizedEquipment,
+              roomName: roomName,
+            ),
           ),
         );
+
+        if (mounted) {
+          setState(() => isProcessing = false);
+        }
       } else {
         debugPrint('❌ ไม่พบครุภัณฑ์: $assetId');
         _showErrorDialog('ไม่พบครุภัณฑ์นี้ในระบบ\n(Asset ID: $assetId)');

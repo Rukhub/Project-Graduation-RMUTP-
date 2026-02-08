@@ -1,42 +1,55 @@
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class GoogleSignInService {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
-    // จำกัดเฉพาะอีเมล @rmutp.ac.th เท่านั้น
     hostedDomain: 'rmutp.ac.th',
-    // ⭐ Web Client ID (สำหรับส่ง Token ไปยัง Backend)
     serverClientId:
-        '981166009147-bq5unpno2qqgq5gqdqpbvsukes2tp17m.apps.googleusercontent.com',
+        '184587611261-becig1ab3ajnjuf94bsuh7p2b0jplh4e.apps.googleusercontent.com',
   );
 
-  /// ล็อกอินด้วย Google และคืนค่า GoogleSignInAccount (เฉพาะ @rmutp.ac.th)ห
-  Future<GoogleSignInAccount?> signInWithGoogle() async {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  /// ล็อกอินด้วย Google และคืนค่า Firebase User (เฉพาะ @rmutp.ac.th)
+  Future<User?> signInWithGoogle() async {
     try {
+      // Force account picker by signing out first
+      await _googleSignIn.signOut();
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
 
+      if (account == null) return null;
+
       // ตรวจสอบอีเมลอีกครั้งเพื่อความปลอดภัย
-      if (account != null && !account.email.endsWith('@rmutp.ac.th')) {
-        if (kDebugMode) {
-          print('Email domain not allowed: ${account.email}');
-        }
+      if (!account.email.endsWith('@rmutp.ac.th')) {
+        debugPrint('Email domain not allowed: ${account.email}');
         await _googleSignIn.signOut();
         return null;
       }
 
-      return account;
+      // ⭐ Sign in to Firebase with Google Credential
+      final GoogleSignInAuthentication googleAuth =
+          await account.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential = await _auth.signInWithCredential(
+        credential,
+      );
+      return userCredential.user;
     } catch (error) {
-      if (kDebugMode) {
-        print('Error signing in with Google: $error');
-      }
+      debugPrint('Error signing in with Google: $error');
       return null;
     }
   }
 
-  /// ออกจากระบบ Google
+  /// ออกจากระบบ
   Future<void> signOut() async {
     await _googleSignIn.signOut();
+    await _auth.signOut();
   }
 
   /// เช็คว่ามีการล็อกอินอยู่หรือไม่

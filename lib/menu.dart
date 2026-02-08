@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math' as math;
 import 'krupan.dart';
 import 'api_service.dart';
 import 'add_equipment_quick.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
+import 'screens/inspection_history_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'admin/user_management_screen.dart';
 import 'app_drawer.dart';
 import 'main.dart'; // สำหรับ LoginPage
 import 'my_reports_screen.dart'; // เพิ่มใหม่: การแจ้งปัญหาของฉัน
 import 'admin_activity_history_screen.dart'; // เพิ่มใหม่: ประวัติการดำเนินการสำหรับ Admin
+import 'screens/admin_ticket_queue_screen.dart';
+import 'services/firebase_service.dart';
+import 'google_sign_in_service.dart';
+// import 'models/user_model.dart';
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
@@ -31,17 +39,51 @@ class _MenuScreenState extends State<MenuScreen> {
   // User Reports (for Activity Feed)
   List<Map<String, dynamic>> recentReports = [];
   bool isLoadingReports = true;
+  bool _recentExpanded = false;
+
+  static const int _recentCollapsedLimit = 3;
+  static const int _recentExpandedLimit = 5;
 
   @override
   void initState() {
     super.initState();
-    // Load based on role
+    _loadUserProfile(); // Load Firebase Profile
     _checkRoleAndLoadData();
+  }
+
+  Future<void> _loadUserProfile() async {
+    final currentUser = ApiService().currentUser;
+    final uid =
+        currentUser?['uid']?.toString() ??
+        currentUser?['user_id']?.toString() ??
+        currentUser?['id']?.toString();
+
+    if (uid != null) {
+      final user = await FirebaseService().getUserProfile(uid);
+      if (user != null && mounted) {
+        setState(() {
+          // Sync Firebase data to ApiService currentUser
+          ApiService().currentUser = {
+            ...ApiService().currentUser ?? {},
+            'uid': user.uid,
+            'fullname': user.fullname,
+            'email': user.email,
+            'role': user.role == 1 ? 'admin' : 'user', // UI compatibility
+            'role_num': user.role,
+            'photo_url': user.photoUrl,
+            'is_approved': user.isApproved,
+          };
+        });
+        debugPrint('👤 Profile loaded from Firebase: ${user.fullname}');
+      }
+    }
   }
 
   Future<void> _checkRoleAndLoadData() async {
     final role = ApiService().currentUser?['role'];
-    if (role == 'admin') {
+    final roleNum = ApiService().currentUser?['role_num'];
+
+    if (role == 'admin' || roleNum == 1) {
       _loadDashboardStats();
     } else {
       _loadRecentReports();
@@ -50,7 +92,7 @@ class _MenuScreenState extends State<MenuScreen> {
 
   Future<void> _loadDashboardStats() async {
     try {
-      final stats = await ApiService().getDashboardStats();
+      final stats = await FirebaseService().getAssetStats();
 
       if (mounted) {
         setState(() {
@@ -69,18 +111,20 @@ class _MenuScreenState extends State<MenuScreen> {
 
   Future<void> _loadRecentReports() async {
     try {
-      final currentUser = ApiService().currentUser;
-      final reporterName =
-          currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
+      final user = FirebaseAuth.instance.currentUser;
+      final reporterId = user?.uid ?? '';
+      if (reporterId.trim().isEmpty) {
+        throw Exception('ไม่พบข้อมูลผู้ใช้ (UID)');
+      }
 
-      // Load user specific reports
-      final data = await ApiService().getMyReports(reporterName);
+      // Load user specific reports via Firestore (by UID)
+      final data = await FirebaseService().getReportsByReporterId(reporterId);
 
       if (mounted) {
         setState(() {
-          // Take top 3 most recent
-          recentReports = data.take(3).toList();
+          recentReports = data;
           isLoadingReports = false;
+          _recentExpanded = false;
         });
       }
     } catch (e) {
@@ -91,7 +135,8 @@ class _MenuScreenState extends State<MenuScreen> {
 
   @override
   Widget build(BuildContext context) {
-    bool isAdmin = ApiService().currentUser?['role'] == 'admin';
+    final user = ApiService().currentUser;
+    bool isAdmin = user?['role'] == 'admin' || user?['role_num'] == 1;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -151,6 +196,8 @@ class _MenuScreenState extends State<MenuScreen> {
               // 2. Menu Items Section
               // Hide main items for User because they are already in the Dashboard
               if (isAdmin) ...[
+                // ========== 📦 จัดการครุภัณฑ์ ==========
+                _buildSectionHeader('📦 จัดการครุภัณฑ์'),
                 MenuItem(
                   imageUrl:
                       'https://cdn-icons-png.flaticon.com/512/9252/9252207.png',
@@ -190,6 +237,10 @@ class _MenuScreenState extends State<MenuScreen> {
                     );
                   },
                 ),
+
+                // ========== 🔧 แจ้งซ่อม / ตรวจสอบ ==========
+                const SizedBox(height: 16),
+                _buildSectionHeader('🔧 แจ้งซ่อม / ตรวจสอบ'),
                 MenuItem(
                   imageUrl:
                       'https://cdn-icons-png.flaticon.com/256/4960/4960785.png',
@@ -203,14 +254,23 @@ class _MenuScreenState extends State<MenuScreen> {
                     );
                   },
                 ),
-              ],
-
-              // เมนูแตกต่างตาม Role (ส่วนท้าย)
-              if (isAdmin)
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/512/2838/2838838.png',
+                  title: 'คิวงานแจ้งปัญหา',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AdminTicketQueueScreen(),
+                      ),
+                    );
+                  },
+                ),
                 MenuItem(
                   imageUrl:
                       'https://cdn-icons-png.flaticon.com/512/3696/3696579.png',
-                  title: 'ประวัติการดำเนินการ',
+                  title: 'ประวัติการรายงาน',
                   onTap: () {
                     Navigator.push(
                       context,
@@ -220,39 +280,7 @@ class _MenuScreenState extends State<MenuScreen> {
                       ),
                     );
                   },
-                )
-              else
-                // For User: link to full history
-                MenuItem(
-                  imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/2099/2099058.png',
-                  title: 'ประวัติการแจ้งปัญหา (ทั้งหมด)',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const MyReportsScreen(),
-                      ),
-                    );
-                  },
                 ),
-
-              if (isAdmin)
-                MenuItem(
-                  imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/1256/1256650.png',
-                  title: 'ระบบอนุมัติผู้ใช้',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const UserManagementScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-              if (isAdmin)
                 MenuItem(
                   imageUrl:
                       'https://cdn-icons-png.flaticon.com/256/11726/11726423.png',
@@ -266,6 +294,37 @@ class _MenuScreenState extends State<MenuScreen> {
                     );
                   },
                 ),
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/512/892/892781.png',
+                  title: 'ประวัติการตรวจสอบอุปกรณ์',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const InspectionHistoryScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // ========== ⚙️ ระบบ ==========
+                const SizedBox(height: 16),
+                _buildSectionHeader('⚙️ ระบบ'),
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/512/1256/1256650.png',
+                  title: 'ระบบอนุมัติผู้ใช้',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const UserManagementScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ],
           ),
         ),
@@ -277,10 +336,17 @@ class _MenuScreenState extends State<MenuScreen> {
         child: SizedBox(
           height: 56,
           child: ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pushReplacement(
+            onPressed: () async {
+              try {
+                await GoogleSignInService().signOut();
+              } catch (_) {}
+              ApiService().currentUser = null;
+
+              if (!context.mounted) return;
+              Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
+                (route) => false,
               );
             },
             icon: const Icon(Icons.logout),
@@ -300,6 +366,23 @@ class _MenuScreenState extends State<MenuScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // === SECTION HEADER ===
+  Widget _buildSectionHeader(String title) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey.shade700,
         ),
       ),
     );
@@ -413,23 +496,51 @@ class _MenuScreenState extends State<MenuScreen> {
                 color: Colors.black87,
               ),
             ),
-            GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const MyReportsScreen(),
+            Row(
+              children: [
+                if (!isLoadingReports && recentReports.length > 3)
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _recentExpanded = !_recentExpanded;
+                      });
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      foregroundColor: Colors.grey.shade700,
+                    ),
+                    child: Text(
+                      _recentExpanded
+                          ? 'ซ่อน'
+                          : 'เพิ่มเติม (${math.max(0, math.min(recentReports.length, _recentExpandedLimit) - _recentCollapsedLimit)})',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                );
-              },
-              child: Text(
-                'ดูทั้งหมด >',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade600,
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MyReportsScreen(),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'ดูทั้งหมด >',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         ),
@@ -466,13 +577,56 @@ class _MenuScreenState extends State<MenuScreen> {
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: recentReports.length,
+            itemCount: _recentExpanded
+                ? math.min(recentReports.length, _recentExpandedLimit)
+                : math.min(recentReports.length, _recentCollapsedLimit),
             separatorBuilder: (context, index) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final report = recentReports[index];
               return _buildMiniReportCard(report);
             },
           ),
+        if (!isLoadingReports &&
+            _recentExpanded &&
+            recentReports.length > _recentExpandedLimit) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 18, color: Colors.grey.shade600),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'ขณะนี้มีทั้งหมด ${recentReports.length} รายการ (แสดงในหน้านี้ได้สูงสุด 5 รายการ) กรุณากดปุ่ม "ดูทั้งหมด" เพื่อดูรายการที่เหลือ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MyReportsScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('ดูทั้งหมด'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -615,39 +769,19 @@ class _MenuScreenState extends State<MenuScreen> {
 
   // Widget: Mini Report Card for Feed
   Widget _buildMiniReportCard(Map<String, dynamic> report) {
-    String status = report['status'] ?? 'Unknown';
-    // ⭐ NEW: ดึงสถานะปัจจุบันของ Asset
-    String assetCurrentStatus =
-        report['asset_current_status']?.toString() ?? '';
+    final rawStatus = (report['report_status'] ?? 'pending').toString();
+    final statusUi = _statusUi(rawStatus);
 
-    // ⭐ FIX: ถ้า Asset กำลังซ่อม ให้ถือว่าเป็น 'กำลังซ่อม' (ถึงแม้ Report จะเป็น Pending)
-    if ((status == 'รอดำเนินการ' ||
-            status == 'รอตรวจสอบ' ||
-            status == 'ชำรุด') &&
-        (assetCurrentStatus == 'อยู่ระหว่างซ่อม' ||
-            assetCurrentStatus == 'กำลังซ่อม')) {
-      status = 'อยู่ระหว่างซ่อม';
-    }
+    final issue =
+        (report['report_remark'] ??
+                report['remark_report'] ??
+                report['issue_detail'] ??
+                report['issue'])
+            ?.toString() ??
+        'แจ้งปัญหา';
 
-    Color statusColor;
-    String statusLabel;
-
-    // ✅ รองรับสถานะใหม่จาก Backend
-    if (status == 'ปกติ' ||
-        status == 'ซ่อมเสร็จแล้ว' ||
-        status == 'ดำเนินการเสร็จสิ้น') {
-      statusColor = Colors.green;
-      statusLabel = 'ซ่อมเสร็จแล้ว';
-    } else if (status == 'อยู่ระหว่างซ่อม' ||
-        status == 'กำลังดำเนินการ' ||
-        status == 'กำลังซ่อม') {
-      statusColor = Colors.orange;
-      statusLabel = 'กำลังซ่อม';
-    } else {
-      // รวม 'รอดำเนินการ', 'ชำรุด', 'รอตรวจสอบ', etc.
-      statusColor = Colors.amber;
-      statusLabel = 'รอซ่อม';
-    }
+    final dateValue =
+        report['reported_at'] ?? report['timestamp'] ?? report['report_date'];
 
     return Card(
       elevation: 0,
@@ -661,31 +795,31 @@ class _MenuScreenState extends State<MenuScreen> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: statusColor.withValues(alpha: 0.1),
+            color: statusUi.color.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.build_circle_outlined, color: statusColor),
+          child: Icon(Icons.build_circle_outlined, color: statusUi.color),
         ),
         title: Text(
-          report['issue_detail'] ?? 'แจ้งปัญหา',
+          issue,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
         subtitle: Text(
-          '${report['asset_id'] ?? ''} • ${_formatDate(report['report_date'])}',
+          '${report['asset_id'] ?? ''} • ${_formatDateTime(dateValue)}',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: statusColor.withValues(alpha: 0.1),
+            color: statusUi.bg,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            statusLabel,
+            statusUi.label,
             style: TextStyle(
-              color: statusColor,
+              color: statusUi.color,
               fontWeight: FontWeight.bold,
               fontSize: 10,
             ),
@@ -704,13 +838,54 @@ class _MenuScreenState extends State<MenuScreen> {
     );
   }
 
-  String _formatDate(dynamic dateValue) {
-    if (dateValue == null) return '';
+  ({Color color, Color bg, String label}) _statusUi(String status) {
+    final s = status.trim().toLowerCase();
+    if (s == 'completed' || s == 'ปกติ' || s == 'ซ่อมเสร็จแล้ว') {
+      return (
+        color: Colors.green,
+        bg: Colors.green.shade50,
+        label: 'ซ่อมเสร็จ',
+      );
+    }
+    if (s == 'repairing' || s == 'อยู่ระหว่างซ่อม' || s == 'กำลังซ่อม') {
+      return (
+        color: const Color(0xFFFF9800),
+        bg: const Color(0xFFFFF3E0),
+        label: 'กำลังซ่อม',
+      );
+    }
+    if (s == 'cancelled' || s == 'ซ่อมไม่ได้') {
+      return (
+        color: const Color(0xFF6B7280),
+        bg: const Color(0xFFF3F4F6),
+        label: 'ซ่อมไม่ได้',
+      );
+    }
+    return (
+      color: const Color(0xFFEF4444),
+      bg: const Color(0xFFFFEBEE),
+      label: 'รอดำเนินการ',
+    );
+  }
+
+  String _formatDateTime(dynamic value) {
+    if (value == null) return '';
     try {
-      final date = DateTime.parse(dateValue.toString());
-      return '${date.day}/${date.month}/${date.year}';
-    } catch (e) {
-      return '';
+      DateTime? dt;
+      if (value is Timestamp) {
+        dt = value.toDate();
+      } else if (value is DateTime) {
+        dt = value;
+      } else {
+        dt = DateTime.tryParse(value.toString());
+      }
+      if (dt == null) return value.toString();
+      final day = dt.day.toString().padLeft(2, '0');
+      final month = dt.month.toString().padLeft(2, '0');
+      final year = dt.year;
+      return '$day/$month/$year';
+    } catch (_) {
+      return value.toString();
     }
   }
 }

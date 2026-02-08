@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'api_service.dart';
+import 'app_drawer.dart';
+import 'services/firebase_service.dart';
+import 'models/asset_model.dart';
 
 class AddEquipmentQuickScreen extends StatefulWidget {
   const AddEquipmentQuickScreen({super.key});
@@ -37,12 +41,103 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
     _loadLocations();
   }
 
+  double? _parsePriceToDouble(String raw) {
+    final cleaned = raw.trim().replaceAll(' ', '');
+    if (cleaned.isEmpty) return null;
+
+    final hasDot = cleaned.contains('.');
+    final commaCount = ','.allMatches(cleaned).length;
+    String normalized = cleaned;
+
+    if (hasDot) {
+      normalized = normalized.replaceAll(',', '');
+    } else if (commaCount == 1) {
+      final parts = normalized.split(',');
+      final dec = parts.length == 2 ? parts[1] : '';
+      if (dec.length <= 2) {
+        normalized = '${parts[0]}.$dec';
+      } else {
+        normalized = normalized.replaceAll(',', '');
+      }
+    } else {
+      normalized = normalized.replaceAll(',', '');
+    }
+
+    return double.tryParse(normalized);
+  }
+
+  String _formatThousands(String digits) {
+    final d = digits.replaceAll(RegExp(r'[^0-9]'), '');
+    if (d.isEmpty) return '';
+    final buf = StringBuffer();
+    for (int i = 0; i < d.length; i++) {
+      final left = d.length - i;
+      buf.write(d[i]);
+      if (left > 1 && left % 3 == 1) {
+        buf.write(',');
+      }
+    }
+    return buf.toString();
+  }
+
+  TextEditingValue _formatPriceValue(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final raw = newValue.text;
+    if (raw.isEmpty) return newValue;
+
+    final filtered = raw.replaceAll(RegExp(r'[^0-9\.,]'), '');
+    final hasDot = filtered.contains('.');
+    String integerPart = filtered;
+    String? decimalPart;
+
+    if (hasDot) {
+      final parts = filtered.split('.');
+      integerPart = parts.first;
+      decimalPart = parts.length > 1 ? parts.sublist(1).join('') : '';
+    } else {
+      final commaCount = ','.allMatches(filtered).length;
+      if (commaCount == 1) {
+        final parts = filtered.split(',');
+        final dec = parts.length == 2 ? parts[1] : '';
+        if (dec.length <= 2) {
+          integerPart = parts.first;
+          decimalPart = dec;
+        } else {
+          integerPart = filtered;
+        }
+      } else {
+        integerPart = filtered;
+      }
+    }
+
+    integerPart = integerPart.replaceAll(',', '');
+    final formattedInt = _formatThousands(integerPart);
+    final formatted = decimalPart == null
+        ? formattedInt
+        : '$formattedInt.${decimalPart.substring(0, decimalPart.length.clamp(0, 2))}';
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
   Future<void> _loadLocations() async {
     setState(() => isLoadingLocations = true);
     try {
-      final data = await ApiService().getLocations();
+      final data = await FirebaseService().getLocations();
       setState(() {
-        locations = data;
+        locations = data
+            .map(
+              (loc) => {
+                'location_id': loc.locationId,
+                'room_name': loc.roomName,
+                'floor': loc.floor,
+              },
+            )
+            .toList();
         isLoadingLocations = false;
       });
     } catch (e) {
@@ -72,6 +167,7 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
+      drawer: const AppDrawer(),
       appBar: AppBar(
         backgroundColor: const Color(0xFF9A2C2C),
         elevation: 0,
@@ -88,6 +184,19 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         centerTitle: true,
+        actions: [
+          Builder(
+            builder: (context) {
+              return IconButton(
+                tooltip: 'เมนู',
+                icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+                onPressed: () {
+                  Scaffold.of(context).openDrawer();
+                },
+              );
+            },
+          ),
+        ],
         title: const Text(
           'เพิ่มอุปกรณ์',
           style: TextStyle(
@@ -385,16 +494,40 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
     );
   }
 
-  void _showAddEquipmentDialog(String roomName, int locationId) {
+  void _showAddEquipmentDialog(String roomName, dynamic locationId) {
     final TextEditingController assetIdController = TextEditingController();
-    final TextEditingController brandModelController = TextEditingController();
-    String selectedType = equipmentTypes.first['name'] as String;
+    final TextEditingController assetNameController = TextEditingController();
+    final TextEditingController priceController = TextEditingController();
+    final TextEditingController purchaseAtController = TextEditingController();
+    String? selectedCategory;
     bool isSubmitting = false;
 
     // Image upload state
     File? selectedImage;
     final ImagePicker picker = ImagePicker();
     bool isUploadingImage = false;
+
+    DateTime? purchaseAt;
+
+    String formatThaiPurchaseDate(DateTime d) {
+      const months = [
+        'มกราคม',
+        'กุมภาพันธ์',
+        'มีนาคม',
+        'เมษายน',
+        'พฤษภาคม',
+        'มิถุนายน',
+        'กรกฎาคม',
+        'สิงหาคม',
+        'กันยายน',
+        'ตุลาคม',
+        'พฤศจิกายน',
+        'ธันวาคม',
+      ];
+      final monthName = months[d.month - 1];
+      final buddhistYear = d.year + 543;
+      return 'วันที่ ${d.day} เดือน$monthName พ.ศ.$buddhistYear';
+    }
 
     showDialog(
       context: context,
@@ -472,7 +605,6 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                   crossAxisAlignment: CrossAxisAlignment
                       .stretch, // ⭐ แก้: ให้ขยายเต็มแนวกว้างโดยไม่ต้องระบุ width
                   children: [
-                    // Asset ID
                     TextField(
                       controller: assetIdController,
                       decoration: InputDecoration(
@@ -485,12 +617,24 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        focusedBorder: OutlineInputBorder(
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Asset Name (name_asset)
+                    TextField(
+                      controller: assetNameController,
+                      decoration: InputDecoration(
+                        labelText: 'ชื่อครุภัณฑ์ *',
+                        hintText: 'เช่น เครื่องปรับอากาศ',
+                        prefixIcon: const Icon(
+                          Icons.label_important,
+                          color: Color(0xFF9A2C2C),
+                        ),
+                        border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF9A2C2C),
-                            width: 2,
-                          ),
                         ),
                         filled: true,
                         fillColor: Colors.grey.shade50,
@@ -498,82 +642,165 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                     ),
                     const SizedBox(height: 18),
 
-                    // Brand/Model
+                    // Category Dropdown (from Firestore)
+                    StreamBuilder<List<Map<String, dynamic>>>(
+                      stream: FirebaseService().getAssetCategoriesStream(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF9A2C2C),
+                            ),
+                          );
+                        }
+
+                        final categories = snapshot.data!;
+                        if (selectedCategory == null && categories.isNotEmpty) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            setDialogState(() {
+                              selectedCategory = categories.first['name'];
+                            });
+                          });
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ประเภท *',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(16),
+                                color: Colors.grey.shade50,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: DropdownButton<String>(
+                                value: selectedCategory,
+                                isExpanded: true,
+                                underline: const SizedBox(),
+                                icon: const Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Color(0xFF9A2C2C),
+                                ),
+                                items: [
+                                  ...categories.map(
+                                    (cat) => DropdownMenuItem(
+                                      value: cat['name'] as String,
+                                      child: Text(cat['name'] as String),
+                                    ),
+                                  ),
+                                  if (ApiService().currentUser?['role'] ==
+                                      'admin')
+                                    const DropdownMenuItem(
+                                      value: '__ADD_NEW__',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.add,
+                                            color: Color(0xFF9A2C2C),
+                                            size: 18,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            '+ เพิ่มหมวดหมู่ใหม่',
+                                            style: TextStyle(
+                                              color: Color(0xFF9A2C2C),
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                                onChanged: isSubmitting
+                                    ? null
+                                    : (value) {
+                                        if (value == '__ADD_NEW__') {
+                                          _showAddCategoryDialog(dialogContext);
+                                        } else {
+                                          setDialogState(
+                                            () => selectedCategory = value,
+                                          );
+                                        }
+                                      },
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+
                     TextField(
-                      controller: brandModelController,
+                      controller: purchaseAtController,
+                      readOnly: true,
+                      enabled: !isSubmitting,
                       decoration: InputDecoration(
-                        labelText: 'ยี่ห้อ/รุ่น *',
-                        hintText: 'เช่น Dell OptiPlex 7070',
+                        labelText: 'วันที่ซื้อ (Purchase Date)',
+                        hintText: 'เลือกวันที่ซื้อ',
                         prefixIcon: const Icon(
-                          Icons.business,
+                          Icons.calendar_month,
                           color: Color(0xFF9A2C2C),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF9A2C2C),
-                            width: 2,
-                          ),
-                        ),
                         filled: true,
                         fillColor: Colors.grey.shade50,
                       ),
+                      onTap: isSubmitting
+                          ? null
+                          : () async {
+                              final now = DateTime.now();
+                              final selected = await showDatePicker(
+                                context: context,
+                                initialDate: purchaseAt ?? now,
+                                firstDate: DateTime(1980),
+                                lastDate: DateTime(now.year + 1),
+                              );
+                              if (selected == null) return;
+                              setDialogState(() {
+                                purchaseAt = selected;
+                                purchaseAtController.text =
+                                    formatThaiPurchaseDate(selected);
+                              });
+                            },
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
 
-                    // Equipment Type
-                    Text(
-                      'ประเภท *',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade800,
+                    // Price
+                    TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(16),
-                        color: Colors.grey.shade50,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      child: DropdownButton<String>(
-                        value: selectedType,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        icon: const Icon(
-                          Icons.arrow_drop_down,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9,\.]')),
+                        TextInputFormatter.withFunction(_formatPriceValue),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'ราคา (บาท)',
+                        hintText: 'เช่น 20,000.00',
+                        prefixIcon: const Icon(
+                          Icons.payments,
                           color: Color(0xFF9A2C2C),
                         ),
-                        items: equipmentTypes.map((type) {
-                          return DropdownMenuItem(
-                            value: type['name'] as String,
-                            child: Row(
-                              children: [
-                                Icon(
-                                  type['icon'] as IconData,
-                                  size: 22,
-                                  color: type['color'] as Color,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  type['name'] as String,
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setDialogState(() => selectedType = value!);
-                        },
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -747,7 +974,10 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
 
                           // Validation
                           // ⭐ NEW: Check invalid location ID
-                          if (locationId <= 0) {
+                          final normalizedLocationId = locationId?.toString();
+                          if (normalizedLocationId == null ||
+                              normalizedLocationId.isEmpty ||
+                              normalizedLocationId == '0') {
                             messenger.showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -768,11 +998,29 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                             );
                             return;
                           }
-                          if (brandModelController.text.trim().isEmpty) {
+                          if (assetNameController.text.trim().isEmpty) {
                             messenger.showSnackBar(
                               const SnackBar(
-                                content: Text('กรุณากรอกยี่ห้อ/รุ่น'),
+                                content: Text('กรุณากรอกชื่อครุภัณฑ์'),
                                 backgroundColor: Colors.orange,
+                              ),
+                            );
+                            return;
+                          }
+                          final rawPrice = priceController.text;
+                          final parsedPrice = _parsePriceToDouble(rawPrice);
+                          debugPrint(
+                            '💰 AddAsset price raw="$rawPrice" parsed=$parsedPrice',
+                          );
+
+                          if (rawPrice.trim().isNotEmpty &&
+                              parsedPrice == null) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'รูปแบบราคาไม่ถูกต้อง (ตัวอย่างที่ถูกต้อง: 20,000.00)',
+                                ),
+                                backgroundColor: Colors.red,
                               ),
                             );
                             return;
@@ -782,93 +1030,65 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
 
                           try {
                             final assetId = assetIdController.text.trim();
-                            // ⭐ Get current user ID for created_by tracking
+
                             final currentUser = ApiService().currentUser;
-                            int? createdById;
-                            if (currentUser != null) {
-                              createdById =
-                                  currentUser['user_id'] ?? currentUser['id'];
-                            }
+                            String? creatorName = currentUser?['fullname'];
 
-                            // Upload image first if selected
-                            String? imageUrl;
-                            if (selectedImage != null) {
-                              setDialogState(() => isUploadingImage = true);
-                              imageUrl = await ApiService().uploadImage(
-                                selectedImage!,
-                              );
-                              setDialogState(() => isUploadingImage = false);
+                            final newAsset = AssetModel(
+                              assetId: assetId,
+                              assetType: selectedCategory ?? '',
+                              assetName: assetNameController.text.trim(),
+                              brandModel: '',
+                              price: parsedPrice,
+                              locationId: normalizedLocationId,
+                              status: 1, // 'ปกติ' as number
+                              checkerName: 'ยังไม่ได้ตรวจสอบ',
+                              imageUrl: null,
+                              createdBy: creatorName,
+                              purchaseAt: null, // Default
+                              createdAt: DateTime.now(),
+                            );
 
-                              if (imageUrl == null) {
-                                messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่',
-                                    ),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                                setDialogState(() => isSubmitting = false);
-                                return;
-                              }
-                            }
-
-                            // 🔍 Debug: ดูว่า created_by เป็นอะไร
-                            debugPrint('🔍 Before Add Asset:');
-                            debugPrint('  - currentUser: $currentUser');
-                            debugPrint('  - createdById: $createdById');
-                            debugPrint('  - Type: ${createdById.runtimeType}');
-
-                            final result = await ApiService().addAsset({
-                              'asset_id': assetId,
-                              'type': selectedType,
-                              'brand_model': brandModelController.text.trim(),
-                              'location_id': locationId,
-                              'status': 'ปกติ',
-                              'images': imageUrl != null ? [imageUrl] : [],
-                              'created_by':
-                                  createdById, // ⭐ ส่ง user_id แทนชื่อ
-                            });
+                            await FirebaseService().addAsset(
+                              assetId: newAsset.assetId,
+                              assetName: newAsset.assetName,
+                              assetType: newAsset.assetType,
+                              price: parsedPrice,
+                              locationId: newAsset.locationId,
+                              createdId: ApiService().currentUser?['uid']
+                                  ?.toString(),
+                              createdBy: newAsset.createdBy,
+                              purchaseAt: purchaseAt,
+                              imageFile: selectedImage,
+                            );
 
                             if (!context.mounted) return;
 
                             Navigator.pop(dialogContext);
 
-                            if (result['success'] == true) {
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  content: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.check_circle,
-                                        color: Colors.white,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text('เพิ่ม $assetId สำเร็จ'),
-                                      ),
-                                    ],
-                                  ),
-                                  backgroundColor: const Color(0xFF99CD60),
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  duration: const Duration(seconds: 3),
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text('เพิ่ม $assetId สำเร็จ'),
+                                    ),
+                                  ],
                                 ),
-                              );
-                              navigator.pop(); // กลับหน้าเมนู
-                            } else {
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    result['message'] ?? 'เกิดข้อผิดพลาด',
-                                  ),
-                                  backgroundColor: Colors.red,
-                                  behavior: SnackBarBehavior.floating,
+                                backgroundColor: const Color(0xFF99CD60),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                              );
-                            }
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                            navigator.pop(); // กลับหน้าเมนู
                           } catch (e) {
                             setDialogState(() => isSubmitting = false);
                             if (!context.mounted) return;
@@ -891,27 +1111,83 @@ class _AddEquipmentQuickScreenState extends State<AddEquipmentQuickScreen> {
                     ),
                     elevation: 0,
                   ),
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text(
-                          'เพิ่ม',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                  child: SizedBox(
+                    width: 130,
+                    child: Center(
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'เพิ่ม',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                    ),
+                  ),
                 ),
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  void _showAddCategoryDialog(BuildContext parentContext) {
+    final TextEditingController categoryController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('เพิ่มหมวดหมู่ใหม่'),
+          content: TextField(
+            controller: categoryController,
+            decoration: const InputDecoration(
+              labelText: 'ชื่อหมวดหมู่',
+              hintText: 'เช่น ครุภัณฑ์โทรคมนาคม',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (categoryController.text.isNotEmpty) {
+                  final success = await FirebaseService().addAssetCategory(
+                    categoryController.text,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(parentContext).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          success
+                              ? 'เพิ่มหมวดหมู่สำเร็จ'
+                              : 'เพิ่มหมวดหมู่ไม่สำเร็จ',
+                        ),
+                        backgroundColor: success ? Colors.green : Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('เพิ่ม'),
+            ),
+          ],
         );
       },
     );

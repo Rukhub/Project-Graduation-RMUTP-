@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'api_service.dart';
+import 'app_drawer.dart';
 import 'equipment_detail_screen.dart';
+import 'services/firebase_service.dart';
+import 'screens/report_detail_screen.dart';
 
 class AdminActivityHistoryScreen extends StatefulWidget {
   const AdminActivityHistoryScreen({super.key});
@@ -14,6 +18,8 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     with SingleTickerProviderStateMixin {
   // ⭐ Add Mixin
 
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   List<Map<String, dynamic>> allActivities =
       []; // Rename from checkLogs to avoid confusion
   bool isLoading = true;
@@ -22,9 +28,12 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
   // สถิติ
   int totalInspections = 0;
+  int reportPendingCount = 0;
+  int reportRepairingCount = 0;
+  int reportCancelledCount = 0;
   int normalCount = 0;
-  int repairingCount = 0;
-  int brokenCount = 0;
+
+  bool _isMigratingAudits = false;
 
   @override
   void initState() {
@@ -32,8 +41,195 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     _tabController = TabController(
       length: 3,
       vsync: this,
-    ); // ⭐ Init TabController length 3
+    ); // ⭐ Init TabController
     _loadActivityHistory();
+  }
+
+  Widget _buildTicketProcessPreview(Map<String, dynamic> item) {
+    final reportedAt = item['reported_at'] ?? item['timestamp'];
+    final startRepairAt = item['start_repair_at'];
+    final finishedAt = item['finished_at'];
+    final status = item['report_status'] ?? item['status'];
+
+    bool hasReported = reportedAt != null;
+    bool hasStart = startRepairAt != null;
+    bool hasFinished = finishedAt != null;
+
+    // Fallback by status when timestamps are missing
+    final s = FirebaseService.reportStatusToCode(status);
+    if (!hasStart && (s == 2 || s == 3 || s == 4)) {
+      hasStart = true;
+    }
+    if (!hasFinished && (s == 3 || s == 4)) {
+      hasFinished = true;
+    }
+
+    Widget step({
+      required String label,
+      required bool done,
+      required Color color,
+    }) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: done ? color : Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: done ? Colors.grey.shade800 : Colors.grey.shade500,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+    }
+
+    Widget divider() {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10),
+        width: 18,
+        height: 1,
+        color: Colors.grey.shade300,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          step(
+            label: 'แจ้งซ่อม',
+            done: hasReported,
+            color: const Color(0xFFEF4444),
+          ),
+          divider(),
+          step(
+            label: 'เริ่มซ่อม',
+            done: hasStart,
+            color: const Color(0xFFFF9800),
+          ),
+          divider(),
+          step(
+            label: 'ปิดงาน',
+            done: hasFinished,
+            color: const Color(0xFF10B981),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _migrateAuditsHistoryDocIds() async {
+    if (_isMigratingAudits) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'จัดระเบียบชื่อเอกสาร (audits_history)',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'ระบบจะสร้างเอกสารใหม่ที่มี Document ID อ่านง่าย แล้วลบเอกสารเก่าที่เป็นชื่อสุ่ม\n\nแนะนำให้ทำครั้งเดียวเท่านั้น',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9A2C2C),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('ทำเลย'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isMigratingAudits = true;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return const Center(
+          child: CircularProgressIndicator(color: Color(0xFF9A2C2C)),
+        );
+      },
+    );
+
+    try {
+      int migratedCount = 0;
+      bool deletedOld = true;
+      try {
+        migratedCount = await FirebaseService().migrateAuditsHistoryDocIds(
+          deleteOld: true,
+        );
+      } catch (e) {
+        deletedOld = false;
+        migratedCount = await FirebaseService().migrateAuditsHistoryDocIds(
+          deleteOld: false,
+        );
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context); // close progress
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            deletedOld
+                ? 'จัดระเบียบสำเร็จ: $migratedCount รายการ'
+                : 'จัดระเบียบสำเร็จ: $migratedCount รายการ (ไม่สามารถลบเอกสารเก่าได้)',
+          ),
+          backgroundColor: const Color(0xFF99CD60),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      await _loadActivityHistory();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close progress
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('จัดระเบียบไม่สำเร็จ: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isMigratingAudits = false;
+      });
+    }
   }
 
   @override
@@ -49,56 +245,68 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     });
 
     try {
-      final currentUser = ApiService().currentUser;
-      final checkerName =
-          currentUser?['fullname'] ?? currentUser?['username'] ?? 'Unknown';
+      // Ticket-based history (reports_history) only
+      final reports = await FirebaseService().getAllReports();
+      debugPrint('📢 Reports found in Firestore: ${reports.length}');
 
-      debugPrint('👤 Loading history for: $checkerName'); // ⭐ Debug 1
+      final processedReports = reports.map((report) {
+        final statusCode = FirebaseService.reportStatusToCode(
+          report['report_status'] ?? report['status'],
+        );
 
-      // 1. ดึงประวัติการตรวจสอบ
-      final logs = await ApiService().getCheckLogsByChecker(checkerName);
-      debugPrint('📋 Logs found: ${logs.length}'); // ⭐ Debug 2
+        String category = 'report_pending';
+        if (statusCode == 2) {
+          category = 'report_repairing';
+        } else if (statusCode == 3) {
+          category = 'normal';
+        } else if (statusCode == 4) {
+          category = 'report_cancelled';
+        }
 
-      // 2. ดึงประวัติการแจ้งปัญหา (ทั้งหมด - ไม่ใช่แค่ของ Admin)
-      final reports = await ApiService().getReports(); // ✅ ใช้ getReports() แทน
-      debugPrint('📢 Reports found: ${reports.length}'); // ⭐ Debug 3
+        String statusStr = 'แจ้งซ่อม';
+        if (statusCode == 2) {
+          statusStr = 'กำลังซ่อม';
+        } else if (statusCode == 3) {
+          statusStr = 'ซ่อมเสร็จ';
+        } else if (statusCode == 4) {
+          statusStr = 'ซ่อมไม่ได้';
+        }
 
-      // 3. แปลงข้อมูล
-      final processedLogs = logs
-          .map(
-            (log) => {
-              ...log,
-              'activity_type': 'inspection',
-              'date': log['check_date'],
-              'status':
-                  log['result_status'] ??
-                  log['status'] ??
-                  'ไม่ระบุ', // ⭐ Fix: Map result_status
-              'note': log['remark'] ?? log['check_detail'], // ⭐ Fix: Map remark
-            },
-          )
-          .toList();
+        final dateField =
+            report['finished_at'] ??
+            report['start_repair_at'] ??
+            report['reported_at'] ??
+            report['timestamp'];
 
-      final processedReports = reports
-          .map(
-            (report) => {
-              ...report,
-              'activity_type': 'report',
-              'date': report['report_date'],
-              'status': report['status'] ?? 'ชำรุด',
-              'note': report['issue_detail'],
-            },
-          )
-          .toList();
+        final note =
+            (report['report_remark'] ??
+                    report['remark_report'] ??
+                    report['issue_detail'] ??
+                    report['issue'])
+                ?.toString();
 
-      // รวมกัน
-      List<Map<String, dynamic>> combined = [
-        ...processedLogs,
-        ...processedReports,
-      ];
+        return {
+          ...report,
+          'activity_type': 'report',
+          'category': category,
+          'report_status': statusCode,
+          'date': dateField,
+          'status': statusStr,
+          'note': note,
+        };
+      }).toList();
+
+      // Reports only
+      List<Map<String, dynamic>> combined = [...processedReports];
       debugPrint(
         '🔁 Total combined activities: ${combined.length}',
       ); // ⭐ Debug 4
+
+      // ✅ This screen is "closed history" only (show only ซ่อมเสร็จ + ซ่อมไม่ได้)
+      combined = combined.where((item) {
+        final cat = item['category']?.toString() ?? '';
+        return cat == 'normal' || cat == 'report_cancelled';
+      }).toList();
 
       // ⭐ DEBUG: Check keys in first item
       if (combined.isNotEmpty) {
@@ -108,35 +316,51 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
       // เรียงลำดับ
       combined.sort((a, b) {
-        final dateA =
-            DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(2000);
-        final dateB =
-            DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(2000);
+        DateTime dateA = DateTime(2000);
+        DateTime dateB = DateTime(2000);
+
+        if (a['date'] is Timestamp) {
+          dateA = (a['date'] as Timestamp).toDate();
+        } else if (a['date'] != null) {
+          dateA = DateTime.tryParse(a['date'].toString()) ?? DateTime(2000);
+        }
+
+        if (b['date'] is Timestamp) {
+          dateB = (b['date'] as Timestamp).toDate();
+        } else if (b['date'] != null) {
+          dateB = DateTime.tryParse(b['date'].toString()) ?? DateTime(2000);
+        }
+
         return dateB.compareTo(dateA);
       });
 
       // คำนวณสถิติ
-      int normal = 0;
+      int pending = 0;
       int repairing = 0;
-      int broken = 0;
+      int cancelled = 0;
+      int normal = 0;
 
-      for (var item in combined) {
-        final status = item['status']?.toString() ?? '';
-        if (status == 'ปกติ' || status == 'Normal')
-          normal++;
-        else if (status == 'อยู่ระหว่างซ่อม' || status == 'Repairing')
+      for (final item in combined) {
+        final cat = item['category']?.toString() ?? '';
+        if (cat == 'report_repairing') {
           repairing++;
-        else if (status == 'ชำรุด' || status == 'Broken')
-          broken++;
+        } else if (cat == 'report_cancelled') {
+          cancelled++;
+        } else if (cat == 'report_pending') {
+          pending++;
+        } else if (cat == 'normal') {
+          normal++;
+        }
       }
 
       if (mounted) {
         setState(() {
           allActivities = combined;
           totalInspections = combined.length;
+          reportPendingCount = pending;
+          reportRepairingCount = repairing;
+          reportCancelledCount = cancelled;
           normalCount = normal;
-          repairingCount = repairing;
-          brokenCount = broken;
           isLoading = false;
         });
       }
@@ -153,7 +377,12 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
   String _formatDate(dynamic dateValue) {
     if (dateValue == null) return '-';
     try {
-      final date = DateTime.parse(dateValue.toString());
+      DateTime date;
+      if (dateValue is Timestamp) {
+        date = dateValue.toDate();
+      } else {
+        date = DateTime.parse(dateValue.toString());
+      }
       final day = date.day.toString().padLeft(2, '0');
       final month = date.month.toString().padLeft(2, '0');
       final year = date.year;
@@ -175,29 +404,35 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
       };
     }
     switch (status) {
-      case 'ปกติ':
-      case 'Normal':
+      case 'แจ้งซ่อม':
         return {
-          'label': 'ปกติ',
-          'color': Color(0xFF4CAF50),
-          'icon': Icons.check_circle,
-          'bgColor': Color(0xFFE8F5E9),
+          'label': 'แจ้งซ่อม',
+          'color': Color(0xFFF44336),
+          'icon': Icons.warning_amber_rounded,
+          'bgColor': Color(0xFFFFEBEE),
         };
-      case 'อยู่ระหว่างซ่อม':
-      case 'Repairing':
+      case 'กำลังซ่อม':
         return {
-          'label': 'อยู่ระหว่างซ่อม',
+          'label': 'กำลังซ่อม',
           'color': Color(0xFFFF9800),
           'icon': Icons.build_circle,
           'bgColor': Color(0xFFFFF3E0),
         };
-      case 'ชำรุด':
-      case 'Broken':
+      case 'ซ่อมไม่ได้':
         return {
-          'label': 'ชำรุด',
-          'color': Color(0xFFF44336),
-          'icon': Icons.error,
-          'bgColor': Color(0xFFFFEBEE),
+          'label': 'ซ่อมไม่ได้',
+          'color': Color(0xFF6B7280),
+          'icon': Icons.block,
+          'bgColor': Color(0xFFF3F4F6),
+        };
+      case 'ซ่อมเสร็จ':
+      case 'ปกติ':
+      case 'Normal':
+        return {
+          'label': 'ซ่อมเสร็จ',
+          'color': Color(0xFF4CAF50),
+          'icon': Icons.check_circle,
+          'bgColor': Color(0xFFE8F5E9),
         };
       default:
         return {
@@ -212,7 +447,9 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFFF5F7FA),
+      drawer: const AppDrawer(),
       appBar: _buildAppBar(),
       body: isLoading
           ? const Center(
@@ -225,32 +462,30 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
           : Column(
               // ⭐ Structure Change
               children: [
-                _buildSummarySection(), // Keep summary on top
                 Expanded(
                   child: TabBarView(
                     // ⭐ TabBarView
                     controller: _tabController,
                     children: [
-                      // Tab 1: แจ้งซ่อม (Broken)
-                      _buildActivityList((item) {
-                        final status = item['status']?.toString() ?? '';
-                        return status == 'ชำรุด' ||
-                            status == 'Broken' ||
-                            item['activity_type'] == 'report';
-                      }, 'รายการแจ้งซ่อม'),
+                      // Tab 1: ทั้งหมด (ซ่อมเสร็จ + ซ่อมไม่ได้)
+                      _buildActivityList(
+                        (item) =>
+                            item['category'] == 'normal' ||
+                            item['category'] == 'report_cancelled',
+                        'รายการทั้งหมด',
+                      ),
 
-                      // Tab 2: อยู่ระหว่างซ่อม (Repairing)
-                      _buildActivityList((item) {
-                        final status = item['status']?.toString() ?? '';
-                        return status == 'อยู่ระหว่างซ่อม' ||
-                            status == 'Repairing';
-                      }, 'รายการซ่อมบำรุง'),
+                      // Tab 2: ซ่อมไม่ได้ (cancelled)
+                      _buildActivityList(
+                        (item) => item['category'] == 'report_cancelled',
+                        'รายการซ่อมไม่ได้',
+                      ),
 
-                      // Tab 3: เสร็จสิ้น/ปกติ (Completed)
-                      _buildActivityList((item) {
-                        final status = item['status']?.toString() ?? '';
-                        return status == 'ปกติ' || status == 'Normal';
-                      }, 'ประวัติการตรวจสอบ'),
+                      // Tab 3: ซ่อมเสร็จ (completed/normal)
+                      _buildActivityList(
+                        (item) => item['category'] == 'normal',
+                        'รายการซ่อมเสร็จ',
+                      ),
                     ],
                   ),
                 ),
@@ -266,29 +501,51 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
       ), // ⭐ Solid Brand Color (No Gradient)
       foregroundColor: Colors.white,
       elevation: 0,
+      automaticallyImplyLeading: false,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.white),
+        onPressed: () => Navigator.pop(context),
+      ),
       centerTitle: true,
+      actions: [
+        IconButton(
+          tooltip: 'เมนู',
+          icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+          onPressed: () {
+            _scaffoldKey.currentState?.openDrawer();
+          },
+        ),
+        IconButton(
+          tooltip: 'จัดระเบียบ Doc ID (audits_history)',
+          onPressed: _isMigratingAudits ? null : _migrateAuditsHistoryDocIds,
+          icon: const Icon(Icons.auto_fix_high),
+        ),
+      ],
       title: const Text(
-        'ประวัติการดำเนินการ',
+        'ประวัติการซ่อม',
         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
       ),
       bottom: TabBar(
         controller: _tabController,
         indicatorColor: Colors.white,
-        indicatorWeight: 4, // Thicker indicator
+        indicatorWeight: 3.5,
         labelColor: Colors.white,
-        unselectedLabelColor: Colors.white60,
+        unselectedLabelColor: Colors.white70,
+        isScrollable: false,
+        tabAlignment: TabAlignment.fill,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 10),
         labelStyle: const TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
         ), // Reduce size for 3 tabs
         unselectedLabelStyle: const TextStyle(
-          fontWeight: FontWeight.normal,
-          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
         ),
         tabs: const [
-          Tab(text: 'แจ้งซ่อม'),
-          Tab(text: 'กำลังซ่อม'), // Repairing
-          Tab(text: 'ตรวจสอบแล้ว'), // Completed/Normal
+          Tab(text: 'ทั้งหมด'),
+          Tab(text: 'ซ่อมไม่ได้'),
+          Tab(text: 'ซ่อมเสร็จ'),
         ],
       ),
     );
@@ -296,41 +553,89 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
 
   Widget _buildSummarySection() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
       width: double.infinity,
-      decoration: const BoxDecoration(
-        color: Color(0xFF9A2C2C), // Continuous Red Background
-        borderRadius: BorderRadius.vertical(
-          bottom: Radius.circular(30),
-        ), // Curved bottom
-      ),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
           ],
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildSummaryItem(
-              'ทั้งหมด',
-              totalInspections,
-              Colors.blue.shade700,
+            Expanded(
+              child: _buildBlockStatItem(
+                label: 'ทั้งหมด',
+                count: totalInspections,
+                color: Colors.blue.shade700,
+                filled: false,
+              ),
             ),
-            _buildContainerSummaryItem('ปกติ', normalCount, Colors.green),
-            _buildContainerSummaryItem('ซ่อม', repairingCount, Colors.orange),
-            _buildContainerSummaryItem('ชำรุด', brokenCount, Colors.red),
+            Expanded(
+              child: _buildBlockStatItem(
+                label: 'ซ่อมไม่ได้',
+                count: reportCancelledCount,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            Expanded(
+              child: _buildBlockStatItem(
+                label: 'ซ่อมเสร็จ',
+                count: normalCount,
+                color: Colors.green,
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBlockStatItem({
+    required String label,
+    required int count,
+    required Color color,
+    bool filled = true,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: filled ? color.withValues(alpha: 0.12) : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            count.toString(),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
     );
   }
 
@@ -340,7 +645,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -429,6 +734,10 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     final status = item['status']?.toString() ?? 'ไม่ระบุ';
     final statusInfo = _getStatusInfo(status);
 
+    final category = item['category']?.toString() ?? '';
+    final bool isCancelled = category == 'report_cancelled';
+    final bool isCompleted = category == 'normal';
+
     final assetId = item['asset_id']?.toString() ?? '-';
     final title =
         item['brand_model'] ?? item['asset_type'] ?? item['type'] ?? assetId;
@@ -448,25 +757,64 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     final bottomInfoText = 'รหัส: $assetId';
 
     final date = _formatDate(item['date']);
-    final note = isReport
-        ? (item['issue_detail'] ?? item['note']?.toString())
-        : (item['remark'] ?? item['check_detail'] ?? item['note']?.toString());
 
-    // ⭐ Actor Name (Verified By / Reported By)
+    final reportedIssue =
+        (item['report_remark'] ??
+                item['remark_report'] ??
+                item['issue_detail'] ??
+                item['issue'] ??
+                item['note'])
+            ?.toString()
+            .trim();
+    final failedReason =
+        (item['finished_remark'] ??
+                item['remark_finished'] ??
+                item['remark_broken'] ??
+                item['failed_reason'])
+            ?.toString()
+            .trim();
+    final completedNote =
+        (item['finished_remark'] ??
+                item['remark_finished'] ??
+                item['remark_completed'] ??
+                item['completed_note'])
+            ?.toString()
+            .trim();
+
+    final String? note = isCancelled
+        ? failedReason
+        : (isCompleted ? completedNote : (reportedIssue ?? ''));
+
+    final reporterName = (item['reporter_name'] ?? '').toString().trim();
+    final workerName = (item['worker_name'] ?? '').toString().trim();
     final actorName = isReport
-        ? (item['reporter_name'] ?? 'ไม่ระบุผู้แจ้ง')
-        : (item['checker_name'] ?? item['inspectorName'] ?? 'ไม่ระบุผู้ตรวจ');
+        ? (reporterName.isNotEmpty ? reporterName : 'ไม่ระบุผู้แจ้ง')
+        : (item['auditor_name'] ?? item['inspectorName'] ?? 'ไม่ระบุผู้ตรวจ');
 
-    // ⭐ Image Logic
+    String _firstOrEmpty(dynamic v) {
+      if (v == null) return '';
+      final s = v.toString().trim();
+      if (s.isEmpty || s == 'null') return '';
+      return s.contains(',') ? s.split(',').first.trim() : s;
+    }
+
+    final reportImageUrl = _firstOrEmpty(
+      item['report_image_url'] ?? item['report_image'],
+    );
+    final brokenEvidenceUrl = _firstOrEmpty(item['broken_image_url']);
+    final finishedEvidenceUrl = _firstOrEmpty(item['finished_image_url']);
+
     String? imageUrl;
-    if (item['images'] != null && (item['images'] as String).isNotEmpty) {
-      imageUrl = (item['images'] as String).split(',').first;
-    } else if (item['image_url'] != null &&
-        (item['image_url'] as String).isNotEmpty) {
-      imageUrl = (item['image_url'] as String).split(',').first;
-    } else if (item['report_image'] != null &&
-        (item['report_image'] as String).isNotEmpty) {
-      imageUrl = (item['report_image'] as String).split(',').first;
+    if (isCancelled && finishedEvidenceUrl.isNotEmpty) {
+      imageUrl = finishedEvidenceUrl;
+    } else if (isCancelled && brokenEvidenceUrl.isNotEmpty) {
+      imageUrl = brokenEvidenceUrl;
+    } else if (isCompleted && finishedEvidenceUrl.isNotEmpty) {
+      imageUrl = finishedEvidenceUrl;
+    } else if (reportImageUrl.isNotEmpty) {
+      imageUrl = reportImageUrl;
+    } else if (_firstOrEmpty(item['images']).isNotEmpty) {
+      imageUrl = _firstOrEmpty(item['images']);
     }
 
     if (imageUrl != null && !imageUrl.startsWith('http')) {
@@ -477,29 +825,28 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     // ⭐ กำหนดสีตามสถานะ (สำหรับ Border และ Background)
     Color cardBorderColor;
     Color cardBgColor;
-    if (isReport ||
-        status == 'ชำรุด' ||
-        status == 'Broken' ||
-        status == 'รอดำเนินการ') {
-      cardBorderColor = Colors.red.shade400;
-      cardBgColor = Colors.red.shade50;
-    } else if (status == 'อยู่ระหว่างซ่อม' ||
-        status == 'Repairing' ||
-        status == 'กำลังดำเนินการ') {
-      cardBorderColor = Colors.orange.shade400;
-      cardBgColor = Colors.orange.shade50;
-    } else if (status == 'ปกติ' ||
-        status == 'Normal' ||
-        status == 'ซ่อมเสร็จแล้ว') {
-      cardBorderColor = Colors.green.shade400;
-      cardBgColor = Colors.green.shade50;
-    } else {
-      cardBorderColor = Colors.grey.shade300;
-      cardBgColor = Colors.grey.shade50;
-    }
+    final color = statusInfo['color'] as Color;
+    cardBorderColor = color;
+    cardBgColor = (statusInfo['bgColor'] as Color);
 
     return GestureDetector(
       onTap: () {
+        if (isReport) {
+          final reportId = item['id']?.toString() ?? '';
+          if (reportId.trim().isEmpty) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ReportDetailScreen(
+                reportId: reportId,
+                userRole: 1,
+                readOnly: true,
+              ),
+            ),
+          );
+          return;
+        }
+
         if (item['asset_id'] != null) {
           Navigator.push(
             context,
@@ -512,8 +859,8 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                   'room_name': roomName,
                   'floor': floor,
                   'location_id': item['location_id'] ?? 0,
-                  'image_url': imageUrl,
-                  'created_by_name': item['created_by_name'],
+                  'asset_image_url': imageUrl,
+                  'created_name': item['created_name'],
                   'reporter_name': item['reporter_name'],
                   'report_reason': item['issue_detail'] ?? item['note'],
                   'brand_model': item['brand_model'],
@@ -523,7 +870,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                           ? '$roomName (${floor.startsWith('ชั้น') ? floor : 'ชั้น $floor'})'
                           : roomName)
                     : 'ไม่ระบุห้อง',
-                autoOpenCheckDialog: false,
+                autoOpenCheckDialog: false, //
               ),
             ),
           );
@@ -583,7 +930,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          isReport ? 'แจ้งซ่อม' : statusInfo['label'],
+                          statusInfo['label'],
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -606,32 +953,42 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Image
-                      Container(
+                      SizedBox(
                         width: 65,
                         height: 65,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.grey.shade100,
-                          border: Border.all(
-                            color: cardBorderColor.withValues(alpha: 0.3),
-                            width: 2,
-                          ),
-                          image: (imageUrl != null && imageUrl.isNotEmpty)
-                              ? DecorationImage(
-                                  image: NetworkImage(imageUrl),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
+                        child: Stack(
+                          children: [
+                            Container(
+                              width: 65,
+                              height: 65,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.grey.shade100,
+                                border: Border.all(
+                                  color: cardBorderColor.withValues(alpha: 0.3),
+                                  width: 2,
+                                ),
+                                image: (imageUrl != null && imageUrl.isNotEmpty)
+                                    ? DecorationImage(
+                                        image: NetworkImage(imageUrl),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: (imageUrl == null || imageUrl.isEmpty)
+                                  ? Icon(
+                                      isReport
+                                          ? Icons.broken_image_rounded
+                                          : Icons.inventory_2_rounded,
+                                      color: cardBorderColor.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      size: 30,
+                                    )
+                                  : null,
+                            ),
+                          ],
                         ),
-                        child: (imageUrl == null || imageUrl.isEmpty)
-                            ? Icon(
-                                isReport
-                                    ? Icons.broken_image_rounded
-                                    : Icons.inventory_2_rounded,
-                                color: cardBorderColor.withValues(alpha: 0.5),
-                                size: 30,
-                              )
-                            : null,
                       ),
                       const SizedBox(width: 14),
 
@@ -664,10 +1021,122 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                 ),
                               ],
                             ),
+                            if (isReport) _buildTicketProcessPreview(item),
+                            if (isReport) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.report_problem_outlined,
+                                    size: 14,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      (reportedIssue == null ||
+                                              reportedIssue.isEmpty ||
+                                              reportedIssue == 'null')
+                                          ? '-'
+                                          : reportedIssue,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade700,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (isCancelled &&
+                                  failedReason != null &&
+                                  failedReason.isNotEmpty &&
+                                  failedReason != 'null') ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.block,
+                                      size: 14,
+                                      color: Color(0xFF6B7280),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        failedReason,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if (isCompleted &&
+                                  completedNote != null &&
+                                  completedNote.isNotEmpty &&
+                                  completedNote != 'null') ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.note_alt_outlined,
+                                      size: 14,
+                                      color: Colors.green.shade700,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        completedNote,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if (workerName.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.build_circle_outlined,
+                                      size: 14,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        workerName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                            const SizedBox(height: 6),
                             Text(
                               subTitle,
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 12,
                                 color: Colors.blueGrey.shade300,
                               ),
                             ),
@@ -720,32 +1189,24 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: isReport
-                                ? const Color(0xFFFEF2F2)
-                                : statusInfo['bgColor'],
+                            color: statusInfo['bgColor'],
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                isReport
-                                    ? Icons.warning_amber_rounded
-                                    : statusInfo['icon'],
+                                statusInfo['icon'],
                                 size: 12,
-                                color: isReport
-                                    ? Colors.red
-                                    : statusInfo['color'],
+                                color: statusInfo['color'],
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                isReport ? 'แจ้งซ่อม' : statusInfo['label'],
+                                statusInfo['label'],
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: isReport
-                                      ? Colors.red
-                                      : statusInfo['color'],
+                                  color: statusInfo['color'],
                                 ),
                               ),
                             ],
@@ -806,6 +1267,6 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
   }
 
   Widget _buildEmptyState() {
-    return const Center(child: Text('ไม่มีประวัติการดำเนินการ'));
+    return const Center(child: Text('ไม่มีประวัติการซ่อม'));
   }
 }

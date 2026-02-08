@@ -48,6 +48,10 @@ dependencies:
   google_sign_in: ^6.2.1
   screenshot: ^3.0.0
   gallery_saver_plus: ^3.2.9
+  firebase_auth: ^6.1.4
+  firebase_core: ^4.4.0
+  cloud_firestore: ^6.1.2
+  firebase_storage: ^13.0.6
 
 dev_dependencies:
   flutter_test:

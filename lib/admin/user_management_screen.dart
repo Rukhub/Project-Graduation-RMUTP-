@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import '../data_service.dart';
 import '../api_service.dart';
+import '../services/firebase_service.dart';
+import '../app_drawer.dart';
+import '../models/user_model.dart';
+import 'dart:async';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -12,53 +15,60 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  List<Map<String, dynamic>> _pendingUsers = [];
-  List<Map<String, dynamic>> _allUsers = [];
+  List<UserModel> _pendingUsers = [];
+  List<UserModel> _allUsers = [];
   bool _isLoading = true;
+  StreamSubscription? _usersSubscription;
 
   // Search & Filter State
   String _searchQuery = '';
   String _selectedRoleFilter = 'All'; // All, Admin, Checker, User
 
-  // Selection Mode State
-  final Set<int> _selectedUserIds = {};
+  // Selection Mode State (Change to String for UID)
+  final Set<String> _selectedUserIds = {};
   bool get _hasSelection => _selectedUserIds.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
+    super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadUsers();
+    _listenToUsers();
   }
 
-  Future<void> _loadUsers() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _usersSubscription?.cancel();
+    _tabController.dispose();
+    super.dispose();
+  }
 
-    // เรียกใช้ API จริงของโบ แทน Mock Data
-    final pending = await ApiService().getPendingUsersFromAPI();
-    final all = await ApiService().getAllUsersFromAPI();
-
-    setState(() {
-      _pendingUsers = pending;
-      _allUsers = all;
-      _isLoading = false;
+  void _listenToUsers() {
+    _usersSubscription = FirebaseService().getUsersStream().listen((users) {
+      if (mounted) {
+        setState(() {
+          _pendingUsers = users.where((u) => !u.isApproved).toList();
+          _allUsers = users;
+          _isLoading = false;
+        });
+      }
     });
   }
 
   Future<void> _changeUserRole(
-    int userId,
-    String currentRole,
+    String uid,
+    int currentRole,
     String userName,
   ) async {
     // Show dialog to select new role
-    String? newRole = await showDialog<String>(
+    int? newRole = await showDialog<int>(
       context: context,
       builder: (context) {
         return SimpleDialog(
           title: Text('เปลี่ยนตำแหน่งของ $userName'),
           children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'admin'),
+              onPressed: () => Navigator.pop(context, 1),
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Row(
@@ -71,7 +81,10 @@ class _UserManagementScreenState extends State<UserManagementScreen>
               ),
             ),
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'checker'),
+              onPressed: () => Navigator.pop(
+                context,
+                2,
+              ), // Keep checker as 2 if needed or 0/1
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Row(
@@ -87,7 +100,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
               ),
             ),
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'user'),
+              onPressed: () => Navigator.pop(context, 0),
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Row(
@@ -105,31 +118,27 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     );
 
     if (newRole != null && newRole != currentRole) {
-      // Call API
-      final result = await ApiService().changeUserRoleAPI(userId, newRole);
+      // Call FirebaseService
+      final success = await FirebaseService().updateUserRole(uid, newRole);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
-            backgroundColor: result['success'] == true
-                ? Colors.green
-                : Colors.red,
+            content: Text(
+              success ? 'เปลี่ยนตำแหน่งเรียบร้อยแล้ว' : 'เกิดข้อผิดพลาด',
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
           ),
         );
-      }
-
-      if (result['success'] == true) {
-        _loadUsers();
       }
     }
   }
 
-  Future<void> _approveUser(int userId, String name) async {
-    // เรียกใช้ API จริงของโบ
-    final result = await ApiService().approveUserAPI(userId);
+  Future<void> _approveUser(String uid, String name) async {
+    // เรียกใช้ FirebaseService
+    final success = await FirebaseService().approveUser(uid);
 
-    if (result['success'] == true) {
+    if (success) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -138,12 +147,11 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           ),
         );
       }
-      _loadUsers();
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'เกิดข้อผิดพลาด'),
+          const SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการอนุมัติ'),
             backgroundColor: Colors.red,
           ),
         );
@@ -152,6 +160,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   }
 
   Future<void> _approveAllUsers() async {
+    if (_pendingUsers.isEmpty) return;
+
     bool confirm =
         await showDialog(
           context: context,
@@ -179,21 +189,18 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         false;
 
     if (confirm) {
-      // เรียกใช้ API จริงของโบ
-      final result = await ApiService().approveAllUsersAPI();
+      final uids = _pendingUsers.map((u) => u.uid).toList();
+      final success = await FirebaseService().approveMultipleUsers(uids);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
-            backgroundColor: result['success'] == true
-                ? Colors.green
-                : Colors.red,
+            content: Text(success ? 'อนุมัติเรียบร้อยแล้ว' : 'เกิดข้อผิดพลาด'),
+            backgroundColor: success ? Colors.green : Colors.red,
           ),
         );
       }
       setState(() => _selectedUserIds.clear());
-      _loadUsers();
     }
   }
 
@@ -227,26 +234,25 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         false;
 
     if (confirm) {
-      final result = await ApiService().approveSelectedUsersAPI(
+      final success = await FirebaseService().approveMultipleUsers(
         _selectedUserIds.toList(),
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
-            backgroundColor: result['success'] == true
-                ? Colors.green
-                : Colors.red,
+            content: Text(success ? 'อนุมัติเรียบร้อยแล้ว' : 'เกิดข้อผิดพลาด'),
+            backgroundColor: success ? Colors.green : Colors.red,
           ),
         );
       }
       setState(() => _selectedUserIds.clear());
-      _loadUsers();
     }
   }
 
   Future<void> _deleteAllPendingUsers() async {
+    if (_pendingUsers.isEmpty) return;
+
     bool confirm =
         await showDialog(
           context: context,
@@ -274,20 +280,20 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         false;
 
     if (confirm) {
-      final result = await ApiService().deleteAllPendingUsersAPI();
+      // Delete all pending users
+      for (var user in _pendingUsers) {
+        await FirebaseService().deleteUser(user.uid);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
-            backgroundColor: result['success'] == true
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('ลบรายการที่รออนุมัติทั้งหมดแล้ว'),
+            backgroundColor: Colors.green,
           ),
         );
       }
       setState(() => _selectedUserIds.clear());
-      _loadUsers();
     }
   }
 
@@ -323,22 +329,19 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         false;
 
     if (confirm) {
-      final result = await ApiService().deleteSelectedUsersAPI(
-        _selectedUserIds.toList(),
-      );
+      for (var uid in _selectedUserIds) {
+        await FirebaseService().deleteUser(uid);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'ดำเนินการเสร็จสิ้น'),
-            backgroundColor: result['success'] == true
-                ? Colors.green
-                : Colors.red,
+          const SnackBar(
+            content: Text('ลบผู้ใช้ที่เลือกเรียบร้อยแล้ว'),
+            backgroundColor: Colors.green,
           ),
         );
       }
       setState(() => _selectedUserIds.clear());
-      _loadUsers();
     }
   }
 
@@ -433,17 +436,17 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     );
   }
 
-  void _toggleUserSelection(int userId) {
+  void _toggleUserSelection(String uid) {
     setState(() {
-      if (_selectedUserIds.contains(userId)) {
-        _selectedUserIds.remove(userId);
+      if (_selectedUserIds.contains(uid)) {
+        _selectedUserIds.remove(uid);
       } else {
-        _selectedUserIds.add(userId);
+        _selectedUserIds.add(uid);
       }
     });
   }
 
-  Future<void> _deleteUser(int userId, String name) async {
+  Future<void> _deleteUser(String uid, String name) async {
     bool confirm =
         await showDialog(
           context: context,
@@ -465,9 +468,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         false;
 
     if (confirm) {
-      // Call DataService for delete operation
-      // Keeping original logic as requested by user flow requirements
-      bool success = await DataService().deleteUser(userId);
+      bool success = await FirebaseService().deleteUser(uid);
       if (success) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -477,7 +478,6 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             ),
           );
         }
-        _loadUsers();
       }
     }
   }
@@ -485,6 +485,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
         title: const Text(
           'จัดการผู้ใช้งาน',
@@ -492,6 +493,24 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         ),
         backgroundColor: const Color(0xFF9A2C2C),
         iconTheme: const IconThemeData(color: Colors.white),
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          Builder(
+            builder: (context) {
+              return IconButton(
+                tooltip: 'เมนู',
+                icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+                onPressed: () {
+                  Scaffold.of(context).openDrawer();
+                },
+              );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.white,
@@ -629,8 +648,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             itemCount: _pendingUsers.length,
             itemBuilder: (context, index) {
               final user = _pendingUsers[index];
-              final userId = user['user_id'];
-              final isSelected = _selectedUserIds.contains(userId);
+              final uid = user.uid;
+              final isSelected = _selectedUserIds.contains(uid);
 
               return Card(
                 elevation: isSelected ? 6 : 3,
@@ -643,7 +662,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                 ),
                 color: isSelected ? Colors.blue.shade50 : Colors.white,
                 child: InkWell(
-                  onTap: () => _toggleUserSelection(userId),
+                  onTap: () => _toggleUserSelection(uid),
                   borderRadius: BorderRadius.circular(12),
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(
@@ -687,14 +706,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       ],
                     ),
                     title: Text(
-                      user['fullname'] ?? 'Unknown',
+                      user.fullname,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: isSelected ? Colors.blue.shade900 : Colors.black,
                       ),
                     ),
                     subtitle: Text(
-                      user['email'] ?? '',
+                      user.email,
                       style: TextStyle(
                         color: isSelected
                             ? Colors.blue.shade700
@@ -707,7 +726,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                         // Checkbox for selection
                         Checkbox(
                           value: isSelected,
-                          onChanged: (value) => _toggleUserSelection(userId),
+                          onChanged: (value) => _toggleUserSelection(uid),
                           activeColor: Colors.blue,
                         ),
                         IconButton(
@@ -718,7 +737,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                           ),
                           tooltip: 'อนุมัติ',
                           onPressed: () =>
-                              _approveUser(user['user_id'], user['fullname']),
+                              _approveUser(user.uid, user.fullname),
                         ),
                         IconButton(
                           icon: const Icon(
@@ -727,8 +746,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             size: 28,
                           ),
                           tooltip: 'ปฏิเสธ',
-                          onPressed: () =>
-                              _deleteUser(user['user_id'], user['fullname']),
+                          onPressed: () => _deleteUser(user.uid, user.fullname),
                         ),
                       ],
                     ),
@@ -745,18 +763,18 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   Widget _buildAllUsersList() {
     // 1. Filter logic
     final filteredUsers = _allUsers.where((user) {
-      final name = (user['fullname'] ?? '').toString().toLowerCase();
-      final email = (user['email'] ?? '').toString().toLowerCase();
-      final role = (user['role'] ?? 'user').toString().toLowerCase();
+      final name = user.fullname.toLowerCase();
+      final email = user.email.toLowerCase();
+      final role = user.role;
 
       final matchesSearch =
           name.contains(_searchQuery.toLowerCase()) ||
           email.contains(_searchQuery.toLowerCase());
       final matchesFilter =
           _selectedRoleFilter == 'All' ||
-          (_selectedRoleFilter == 'Admin' && role == 'admin') ||
-          (_selectedRoleFilter == 'Checker' && role == 'checker') ||
-          (_selectedRoleFilter == 'User' && role == 'user');
+          (_selectedRoleFilter == 'Admin' && role == 1) ||
+          (_selectedRoleFilter == 'Checker' && role == 2) ||
+          (_selectedRoleFilter == 'User' && role == 0);
 
       return matchesSearch && matchesFilter;
     }).toList();
@@ -830,22 +848,26 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                   itemCount: filteredUsers.length,
                   itemBuilder: (context, index) {
                     final user = filteredUsers[index];
-                    bool isApproved = user['is_approved'] == 1;
-                    String role = user['role'] ?? 'user';
+                    bool isApproved = user.isApproved;
+                    int role = user.role;
 
                     // 🔒 Check if this is the current logged-in user
-                    final currentUserId = ApiService().currentUser?['user_id'];
-                    final isCurrentUser = currentUserId == user['user_id'];
+                    final currentUid = ApiService().currentUser?['uid'];
+                    final isCurrentUser = currentUid == user.uid;
 
                     // Determine Icon & Color based on Role
                     IconData roleIcon = Icons.person;
                     Color roleColor = Colors.grey;
-                    if (role == 'admin') {
+                    String roleLabel = 'User';
+
+                    if (role == 1) {
                       roleIcon = Icons.admin_panel_settings;
                       roleColor = Colors.red;
-                    } else if (role == 'checker') {
+                      roleLabel = 'Admin';
+                    } else if (role == 2) {
                       roleIcon = Icons.verified_user;
                       roleColor = Colors.blue;
+                      roleLabel = 'Checker';
                     }
 
                     return Card(
@@ -860,13 +882,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                           child: Icon(roleIcon, color: roleColor),
                         ),
                         title: Text(
-                          user['fullname'] ?? 'Unknown',
+                          user.fullname,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(user['email'] ?? ''),
+                            Text(user.email),
                             const SizedBox(height: 4),
                             Row(
                               children: [
@@ -885,7 +907,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                                     ),
                                   ),
                                   child: Text(
-                                    role.toUpperCase(),
+                                    roleLabel.toUpperCase(),
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: roleColor,
@@ -940,13 +962,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             }
 
                             if (value == 'delete') {
-                              _deleteUser(user['user_id'], user['fullname']);
+                              _deleteUser(user.uid, user.fullname);
                             } else if (value == 'change_role') {
-                              _changeUserRole(
-                                user['user_id'],
-                                role,
-                                user['fullname'],
-                              );
+                              _changeUserRole(user.uid, role, user.fullname);
                             }
                           },
                           itemBuilder: (context) => [

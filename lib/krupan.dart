@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'krupan_room.dart'; // import ไฟล์หน้าห้อง
 import 'api_service.dart'; // import api_service
 import 'app_drawer.dart';
+import 'dart:async'; // Add async for StreamSubscription
+import 'services/firebase_service.dart';
 
 class KrupanScreen extends StatefulWidget {
   const KrupanScreen({super.key});
@@ -19,6 +21,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
   // เก็บข้อมูลห้องที่ดึงจาก API: { 1: [{'location_id': 1, 'room_name': 'Room 1'}, ...], ... }
   Map<int, List<Map<String, dynamic>>> apiFloorRooms = {};
   bool _isLoading = true;
+  StreamSubscription? _locationSubscription;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -60,65 +63,84 @@ class _KrupanScreenState extends State<KrupanScreen> {
   @override
   void initState() {
     super.initState();
-    _loadLocations();
+    _listenToLocations();
   }
 
-  Future<void> _loadLocations() async {
-    setState(() => _isLoading = true);
-    try {
-      final locations = await ApiService().getLocations();
+  @override
+  void dispose() {
+    _locationSubscription?.cancel();
+    super.dispose();
+  }
 
-      // จัดกลุ่มห้องตามชั้น
-      Map<int, List<Map<String, dynamic>>> tempFloorRooms = {};
+  void _listenToLocations() {
+    _locationSubscription = FirebaseService().getLocationsStream().listen(
+      (locations) {
+        if (!mounted) return;
 
-      for (var loc in locations) {
-        // Parse floor: "ชั้น 1" -> 1
-        String floorStr = loc['floor']?.toString() ?? '';
-        int? floor;
+        // จัดกลุ่มห้องตามชั้น
+        Map<int, List<Map<String, dynamic>>> tempFloorRooms = {};
 
-        // พยายามดึงตัวเลขจาก string
-        final RegExp digitRegex = RegExp(r'\d+');
-        final match = digitRegex.firstMatch(floorStr);
-        if (match != null) {
-          floor = int.parse(match.group(0)!);
-        } else {
-          // Fallback ถ้าไม่ใช่ format "ชั้น X" ให้ลอง cast ตรงๆ หรือข้าม
-          floor = int.tryParse(floorStr);
-        }
+        for (var loc in locations) {
+          // Handle floor: Can be Int or String
+          dynamic floorVal = loc['floor'];
+          int? floor;
 
-        if (floor != null) {
-          if (!tempFloorRooms.containsKey(floor)) {
-            tempFloorRooms[floor] = [];
+          if (floorVal is int) {
+            floor = floorVal;
+          } else if (floorVal is String) {
+            // Parse "ชั้น 1" -> 1 OR "1" -> 1
+            final RegExp digitRegex = RegExp(r'\d+');
+            final match = digitRegex.firstMatch(floorVal);
+            if (match != null) {
+              floor = int.parse(match.group(0)!);
+            }
           }
-          // เก็บทั้ง Object เพื่อให้มี location_id ไว้ลบ
-          tempFloorRooms[floor]!.add(loc);
+
+          if (floor != null) {
+            if (!tempFloorRooms.containsKey(floor)) {
+              tempFloorRooms[floor] = [];
+            }
+            // เก็บข้อมูลห้อง
+            tempFloorRooms[floor]!.add({
+              'location_id': loc['id'], // Use Document ID
+              'floor': loc['floor'],
+              'room_name': loc['room_name'] ?? '',
+            });
+          }
         }
-      }
 
-      // เรียงลำดับห้องในแต่ละชั้น (ตามชื่อ)
-      for (var key in tempFloorRooms.keys) {
-        tempFloorRooms[key]!.sort(
-          (a, b) =>
-              (a['room_name'] as String).compareTo(b['room_name'] as String),
-        );
-      }
-
-      setState(() {
-        apiFloorRooms = tempFloorRooms;
-        _isLoading = false;
-
-        // ถ้าชั้นที่เลือกไม่มีในข้อมูลใหม่ ให้เปลี่ยนไปชั้นแรกที่มี
-        if (!apiFloorRooms.containsKey(selectedFloor) &&
-            apiFloorRooms.isNotEmpty) {
-          selectedFloor = apiFloorRooms.keys.reduce(
-            (a, b) => a < b ? a : b,
-          ); // เลือกชั้นต่ำสุด
+        // เรียงลำดับห้องในแต่ละชั้น (ตามชื่อ) Safe sort
+        for (var key in tempFloorRooms.keys) {
+          tempFloorRooms[key]!.sort((a, b) {
+            String nameA = a['room_name']?.toString() ?? '';
+            String nameB = b['room_name']?.toString() ?? '';
+            return nameA.compareTo(nameB);
+          });
         }
-      });
-    } catch (e) {
-      debugPrint('Error loading locations: $e');
-      setState(() => _isLoading = false);
-    }
+
+        setState(() {
+          apiFloorRooms = tempFloorRooms;
+          _isLoading = false;
+
+          // ถ้าชั้นที่เลือกไม่มีในข้อมูลใหม่ ให้เปลี่ยนไปชั้นแรกที่มี
+          if (!apiFloorRooms.containsKey(selectedFloor) &&
+              apiFloorRooms.isNotEmpty) {
+            selectedFloor = apiFloorRooms.keys.reduce(
+              (a, b) => a < b ? a : b,
+            ); // เลือกชั้นต่ำสุด
+          }
+
+          // ถ้าข้อมูลว่างเลย (ลบหมดแล้ว) แล้วยังค้างอยู่ชั้นเดิมที่ไม่มี
+          if (apiFloorRooms.isEmpty) {
+            // Do nothing, list will be empty
+          }
+        });
+      },
+      onError: (e) {
+        debugPrint('🚨 Error loading Firebase locations: $e');
+        if (mounted) setState(() => _isLoading = false);
+      },
+    );
   }
 
   @override
@@ -587,20 +609,18 @@ class _KrupanScreenState extends State<KrupanScreen> {
                       bool allSuccess = true;
 
                       for (var room in roomsToMove) {
-                        int locationId = int.parse(
-                          room['location_id'].toString(),
-                        );
+                        String locationId = room['location_id'].toString();
                         String currentRoomName =
                             room['room_name']; // ดึงชื่อห้องเดิม
 
-                        // Update floor (ส่งทั้ง floor และ room_name ตามที่ API บังคับ)
-                        final res = await ApiService().updateRoomLocation(
+                        // Update floor
+                        final success = await FirebaseService().updateLocation(
                           locationId,
-                          floor: 'ชั้น $newFloor',
+                          floor: newFloor,
                           roomName: currentRoomName,
                         );
 
-                        if (res['success'] != true) {
+                        if (!success) {
                           allSuccess = false;
                         }
                       }
@@ -620,8 +640,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
                         );
                       }
 
-                      // Reload Data
-                      _loadLocations();
+                      // Stream will auto-reload, no manual reload needed
                     }
                   }
                 }
@@ -809,7 +828,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
   // ฟังก์ชันแสดง Dialog เพิ่มห้อง
   void _showAddRoomDialog(BuildContext context) {
-    final TextEditingController roomController = TextEditingController();
+    final TextEditingController roomNameController = TextEditingController();
 
     showDialog(
       context: context,
@@ -819,12 +838,75 @@ class _KrupanScreenState extends State<KrupanScreen> {
             borderRadius: BorderRadius.circular(20),
           ),
           title: const Text('เพิ่มห้องใหม่'),
-          content: TextField(
-            controller: roomController,
-            decoration: const InputDecoration(
-              hintText: 'ชื่อห้อง (Ex. Room 1001)',
-              border: OutlineInputBorder(),
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Info: Building และ Floor
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9A2C2C).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF9A2C2C).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.business,
+                          size: 18,
+                          color: Color(0xFF9A2C2C),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('อาคาร: ', style: TextStyle(fontSize: 13)),
+                        Text(
+                          'ตึกกิจการนักศึกษา',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.layers,
+                          size: 18,
+                          color: Color(0xFF9A2C2C),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('ชั้น: ', style: TextStyle(fontSize: 13)),
+                        Text(
+                          '$selectedFloor',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Room Name Input
+              TextField(
+                controller: roomNameController,
+                decoration: const InputDecoration(
+                  labelText: 'ชื่อห้อง',
+                  hintText: 'เช่น ห้องเรียน 8888',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.meeting_room),
+                  helperText: 'ระบบจะดึงเลขห้องจากชื่ออัตโนมัติ',
+                  helperMaxLines: 2,
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -833,59 +915,50 @@ class _KrupanScreenState extends State<KrupanScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (roomController.text.isNotEmpty) {
-                  // เรียก API เพิ่มห้อง
-                  final result = await ApiService().addLocation(
-                    selectedFloor,
-                    roomController.text,
+                final roomName = roomNameController.text.trim();
+                if (roomName.isEmpty) return;
+
+                // Extract location_id (ดึงตัวเลขออกจากชื่อห้อง)
+                final RegExp numberRegex = RegExp(r'\d+');
+                final match = numberRegex.firstMatch(roomName);
+
+                if (match == null) {
+                  // ไม่มีตัวเลขในชื่อห้อง
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'กรุณาใส่เลขห้องในชื่อ เช่น "ห้องเรียน 8888"',
+                      ),
+                      backgroundColor: Colors.orange,
+                    ),
                   );
+                  return;
+                }
 
-                  if (context.mounted) {
-                    Navigator.pop(context); // ปิด Dialog
+                final locationId = match.group(0)!; // เลขห้อง เช่น "8888"
 
-                    if (result['success']) {
-                      // แสดง Notification ด้านล่าง (สีเขียว)
-                      _showBottomNotification(
-                        message: 'เพิ่มห้อง "${roomController.text}" สำเร็จ',
-                        icon: Icons.check_circle,
-                        color: Colors.green,
-                      );
+                // เรียก API เพิ่มห้อง
+                final success = await FirebaseService().addLocation(
+                  locationId: locationId, // "8888"
+                  roomName: roomName, // "ห้องเรียน 8888"
+                  floor: selectedFloor,
+                );
 
-                      // Optimistic Update: เพิ่มห้องเข้า List ทันที
-                      setState(() {
-                        if (!apiFloorRooms.containsKey(selectedFloor)) {
-                          apiFloorRooms[selectedFloor] = [];
-                        }
+                if (context.mounted) {
+                  Navigator.pop(context); // ปิด Dialog
 
-                        // สร้าง Object ห้องใหม่
-                        // ถ้า Server ส่ง ID กลับมาให้ใช้ ID นั้น ถ้าไม่มีให้ใช้ 0 ไปก่อน (แต่มันจะลบไม่ได้ใน session นี้)
-                        int newId = result['location_id'] ?? 0;
-
-                        apiFloorRooms[selectedFloor]!.add({
-                          'location_id': newId,
-                          'room_name': roomController.text,
-                          'floor': 'ชั้น $selectedFloor',
-                        });
-
-                        // จัดเรียง
-                        apiFloorRooms[selectedFloor]!.sort(
-                          (a, b) => (a['room_name'] as String).compareTo(
-                            b['room_name'] as String,
-                          ),
-                        );
-                      });
-
-                      // โหลดข้อมูลจริงตามมา (เผื่อ ID ผิดหรือต้องการข้อมูลอื่นเพิ่ม)
-                      // กรณีนี้ไม่ต้อง Loading Screen ก็ได้เพื่อให้ดู Realtime
-                      // _loadLocations(); // ถ้าอยากชัวร์ก็เปิดหรืือทำแบบ silent update
-                    } else {
-                      // แสดง Notification ด้านล่าง (สีแดง - Error)
-                      _showBottomNotification(
-                        message: result['message'] ?? 'เกิดข้อผิดพลาด',
-                        icon: Icons.error_outline,
-                        color: Colors.red,
-                      );
-                    }
+                  if (success) {
+                    _showBottomNotification(
+                      message: 'เพิ่มห้อง "$roomName" สำเร็จ',
+                      icon: Icons.check_circle,
+                      color: Colors.green,
+                    );
+                  } else {
+                    _showBottomNotification(
+                      message: 'เพิ่มห้องไม่สำเร็จ (ID: $locationId อาจซ้ำ)',
+                      icon: Icons.error_outline,
+                      color: Colors.red,
+                    );
                   }
                 }
               },
@@ -905,7 +978,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
     final TextEditingController roomController = TextEditingController(
       text: room['room_name'],
     );
-    int locationId = int.parse(room['location_id'].toString());
+    String locationId = room['location_id'].toString();
 
     showDialog(
       context: context,
@@ -931,42 +1004,25 @@ class _KrupanScreenState extends State<KrupanScreen> {
               onPressed: () async {
                 String newName = roomController.text.trim();
                 if (newName.isNotEmpty && newName != room['room_name']) {
-                  // เรียก API แก้ไข (ต้องส่งทั้งชั้นและชื่อห้อง ตามที่ Server บังคับ)
-                  final result = await ApiService().updateRoomLocation(
+                  // เรียก API แก้ไข
+                  final success = await FirebaseService().updateLocation(
                     locationId,
                     roomName: newName,
-                    floor: 'ชั้น $selectedFloor', // ส่งชั้นปัจจุบันไปด้วย
+                    floor: selectedFloor,
                   );
 
                   if (context.mounted) {
                     Navigator.pop(context);
-                    if (result['success']) {
+                    if (success) {
                       _showBottomNotification(
                         message: 'แก้ไขชื่อห้องเป็น "$newName" สำเร็จ',
                         icon: Icons.check_circle,
                         color: Colors.green,
                       );
-                      setState(() {
-                        // Update UI
-                        final index = apiFloorRooms[selectedFloor]?.indexWhere(
-                          (element) =>
-                              element['location_id'].toString() ==
-                              locationId.toString(),
-                        );
-                        if (index != null && index != -1) {
-                          apiFloorRooms[selectedFloor]![index]['room_name'] =
-                              newName;
-                          // Re-sort
-                          apiFloorRooms[selectedFloor]!.sort(
-                            (a, b) => (a['room_name'] as String).compareTo(
-                              b['room_name'] as String,
-                            ),
-                          );
-                        }
-                      });
+                      // Stream auto updates UI
                     } else {
                       _showBottomNotification(
-                        message: result['message'] ?? 'แก้ไขไม่สำเร็จ',
+                        message: 'แก้ไขไม่สำเร็จ',
                         icon: Icons.error_outline,
                         color: Colors.red,
                       );
@@ -1050,7 +1106,8 @@ class _KrupanScreenState extends State<KrupanScreen> {
                 builder: (context) => KrupanRoomScreen(
                   roomName: roomName,
                   floor: selectedFloor,
-                  locationId: int.parse(room['location_id'].toString()),
+                  locationId:
+                      room['location_id'] ?? '0', // Pass as dynamic/String
                 ),
               ),
             );
@@ -1153,10 +1210,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
 
     try {
       String roomName = room['room_name'];
-      int locationId = int.parse(room['location_id'].toString());
+      String locationId = room['location_id'].toString();
 
-      // 2. ดึงข้อมูลครุภัณฑ์ล่าสุดจาก API
-      final assets = await ApiService().getAssetsByLocation(locationId);
+      // Use Firestore for accurate asset count before deletion
+      final assets = await FirebaseService().getAssetsByLocation(locationId);
       final assetCount = assets.length;
 
       // 3. ปิด Loading
@@ -1181,7 +1238,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
   // Dialog สำหรับห้องที่มีครุภัณฑ์ (ต้องพิมพ์ Delete)
   Future<void> _showDeleteRoomWithAssetsDialog(
     String roomName,
-    int locationId,
+    String locationId,
     int assetCount,
   ) async {
     final TextEditingController confirmController = TextEditingController();
@@ -1318,30 +1375,22 @@ class _KrupanScreenState extends State<KrupanScreen> {
                             errorMessage = null;
                           });
 
-                          final result = await ApiService().deleteLocation(
-                            locationId,
-                          );
+                          final success = await FirebaseService()
+                              .deleteLocation(locationId);
 
                           if (context.mounted) {
                             Navigator.pop(context, true);
-                            if (result['success'] == true) {
+                            if (success) {
                               _showBottomNotification(
                                 message:
                                     'ลบห้อง "$roomName" และครุภัณฑ์ทั้งหมด ($assetCount ชิ้น) สำเร็จ',
                                 icon: Icons.delete_sweep,
                                 color: Colors.red,
                               );
-                              setState(() {
-                                apiFloorRooms[selectedFloor]?.removeWhere(
-                                  (r) =>
-                                      r['location_id'].toString() ==
-                                      locationId.toString(),
-                                );
-                              });
+                              // Stream auto updates
                             } else {
                               _showBottomNotification(
-                                message:
-                                    result['message'] ?? 'ไม่สามารถลบห้องได้',
+                                message: 'ไม่สามารถลบห้องได้',
                                 icon: Icons.error_outline,
                                 color: Colors.red,
                               );
@@ -1376,7 +1425,7 @@ class _KrupanScreenState extends State<KrupanScreen> {
   // Dialog สำหรับห้องว่าง (แบบธรรมดา)
   Future<void> _showDeleteEmptyRoomDialog(
     String roomName,
-    int locationId,
+    String locationId,
   ) async {
     showDialog(
       context: context,
@@ -1409,25 +1458,21 @@ class _KrupanScreenState extends State<KrupanScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                final result = await ApiService().deleteLocation(locationId);
+                final success = await FirebaseService().deleteLocation(
+                  locationId,
+                );
                 if (context.mounted) {
                   Navigator.pop(context);
-                  if (result['success'] == true) {
+                  if (success) {
                     _showBottomNotification(
                       message: 'ลบห้อง "$roomName" สำเร็จ',
                       icon: Icons.delete_sweep,
                       color: Colors.red,
                     );
-                    setState(() {
-                      apiFloorRooms[selectedFloor]?.removeWhere(
-                        (r) =>
-                            r['location_id'].toString() ==
-                            locationId.toString(),
-                      );
-                    });
+                    // Stream auto updates
                   } else {
                     _showBottomNotification(
-                      message: result['message'] ?? 'ไม่สามารถลบห้องได้',
+                      message: 'ไม่สามารถลบห้องได้',
                       icon: Icons.error_outline,
                       color: Colors.red,
                     );
@@ -1633,13 +1678,10 @@ class _KrupanScreenState extends State<KrupanScreen> {
                           // ลบห้องทั้งหมดใน Database
                           bool allSuccess = true;
                           for (var room in rooms) {
-                            final locationId = int.parse(
-                              room['location_id'].toString(),
-                            );
-                            final result = await ApiService().deleteLocation(
-                              locationId,
-                            );
-                            if (result['success'] != true) {
+                            final locationId = room['location_id'].toString();
+                            final success = await FirebaseService()
+                                .deleteLocation(locationId);
+                            if (!success) {
                               allSuccess = false;
                               break;
                             }

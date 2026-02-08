@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../krupan.dart';
 import '../report_problem_screen.dart';
 import '../qr_scanner_screen.dart';
 import '../app_drawer.dart';
 import '../my_reports_screen.dart';
-import '../api_service.dart';
+import 'services/firebase_service.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -18,6 +20,59 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   Map<String, dynamic>? latestReport;
   bool isLoading = false;
 
+  String _formatDateTime(dynamic value) {
+    if (value == null) return '';
+    try {
+      DateTime? dt;
+      if (value is Timestamp) {
+        dt = value.toDate();
+      } else if (value is DateTime) {
+        dt = value;
+      } else {
+        dt = DateTime.tryParse(value.toString());
+      }
+      if (dt == null) return value.toString();
+      final day = dt.day.toString().padLeft(2, '0');
+      final month = dt.month.toString().padLeft(2, '0');
+      final year = dt.year;
+      final hour = dt.hour.toString().padLeft(2, '0');
+      final minute = dt.minute.toString().padLeft(2, '0');
+      return '$day/$month/$year $hour:$minute';
+    } catch (_) {
+      return value.toString();
+    }
+  }
+
+  ({Color color, Color bg, String label}) _statusUi(dynamic status) {
+    final c = FirebaseService.reportStatusToCode(status);
+    if (c == 3) {
+      return (
+        color: Colors.green,
+        bg: Colors.green.shade50,
+        label: 'ซ่อมเสร็จ',
+      );
+    }
+    if (c == 2) {
+      return (
+        color: const Color(0xFFFF9800),
+        bg: const Color(0xFFFFF3E0),
+        label: 'กำลังซ่อม',
+      );
+    }
+    if (c == 4) {
+      return (
+        color: const Color(0xFF6B7280),
+        bg: const Color(0xFFF3F4F6),
+        label: 'ซ่อมไม่ได้',
+      );
+    }
+    return (
+      color: const Color(0xFFEF4444),
+      bg: const Color(0xFFFFEBEE),
+      label: 'รอดำเนินการ',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -27,17 +82,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   Future<void> _loadLatestReport() async {
     setState(() => isLoading = true);
     try {
-      final user = ApiService().currentUser;
-      final username = user?['fullname'] ?? user?['username'] ?? '';
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (uid.trim().isEmpty) return;
 
-      if (username.isNotEmpty) {
-        final reports = await ApiService().getMyReports(username);
-        if (reports.isNotEmpty && mounted) {
-          // Sort or just take the first one assuming API returns sorted
-          setState(() {
-            latestReport = reports.first;
-          });
-        }
+      final reports = await FirebaseService().getReportsByReporterId(uid);
+      if (reports.isNotEmpty && mounted) {
+        setState(() {
+          latestReport = reports.first;
+        });
       }
     } catch (e) {
       debugPrint('Error loading latest report: $e');
@@ -241,70 +293,35 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
     // Show Latest Report Details
     final report = latestReport!;
-    final assetId = report['asset_id'] ?? '-';
-    // Use asset status from API or fallback to report status
-    final assetCurrentStatus = report['asset_current_status']?.toString();
-    var rawStatus = report['status']?.toString() ?? 'รอตรวจสอบ';
 
-    debugPrint(
-      '🏠 Home: rawStatus=$rawStatus, assetStatus=$assetCurrentStatus',
-    );
-
-    // ⭐ FIX: ถ้า Asset กำลังซ่อม ให้แสดงว่ากำลังซ่อม (เหมือนใน MyReportsScreen)
-    if ((rawStatus == 'รอดำเนินการ' ||
-            rawStatus == 'รอตรวจสอบ' ||
-            rawStatus == 'ชำรุด') &&
-        (assetCurrentStatus == 'อยู่ระหว่างซ่อม' ||
-            assetCurrentStatus == 'กำลังซ่อม')) {
-      rawStatus = 'อยู่ระหว่างซ่อม';
-    }
-
-    // Determine color and label based on status
-    Color statusColor;
-    Color statusBgColor;
-    String statusLabel;
-
-    if (rawStatus == 'ปกติ' ||
-        rawStatus == 'Normal' ||
-        rawStatus == 'ซ่อมเสร็จแล้ว' ||
-        rawStatus == 'ดำเนินการเสร็จสิ้น') {
-      statusColor = Colors.green;
-      statusBgColor = Colors.green.shade50;
-      statusLabel = 'ซ่อมเสร็จแล้ว'; // หรือ 'ปกติ'
-    } else if (rawStatus == 'อยู่ระหว่างซ่อม' ||
-        rawStatus == 'Repairing' ||
-        rawStatus == 'กำลังดำเนินการ') {
-      statusColor = Colors.amber.shade700;
-      statusBgColor = Colors.amber.shade50;
-      statusLabel = 'กำลังซ่อม';
-    } else if (rawStatus == 'ชำรุด' || rawStatus == 'Broken') {
-      statusColor = Colors.red;
-      statusBgColor = Colors.red.shade50;
-      statusLabel = 'รอการตรวจสอบ';
-    } else {
-      // DefaultFor 'รอดำเนินการ' / 'รอตรวจสอบ' / Other
-      statusColor = Colors.amber.shade700;
-      statusBgColor = Colors.amber.shade50;
-      statusLabel = 'รอดำเนินการ';
-    }
-
-    final issue = report['issue_detail'] ?? '-';
-    final date = (report['report_date'] ?? '').split('T').first;
+    final rawStatus = report['report_status'] ?? report['status'] ?? 1;
+    final statusUi = _statusUi(rawStatus);
+    final assetId = report['asset_id']?.toString() ?? '-';
+    final issue =
+        (report['report_remark'] ??
+                report['remark_report'] ??
+                report['issue_detail'] ??
+                report['issue'])
+            ?.toString() ??
+        '-';
+    final dateValue =
+        report['reported_at'] ?? report['timestamp'] ?? report['date'];
+    final date = _formatDateTime(dateValue);
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: statusColor.withValues(alpha: 0.1),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: statusColor.withValues(alpha: 0.2)),
+        border: Border.all(color: statusUi.color.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -317,17 +334,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: statusBgColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: statusBgColor),
+                  color: statusUi.bg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: statusUi.color.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Text(
-                  statusLabel,
+                  statusUi.label,
                   style: TextStyle(
                     fontSize: 12,
-                    color: statusColor,
+                    color: statusUi.color,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -335,47 +357,18 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             ],
           ),
           const Divider(height: 24),
-          Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  rawStatus == 'ปกติ'
-                      ? Icons.check_circle_outline
-                      : Icons.broken_image_outlined,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      assetId,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      issue,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 14,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Text(
+            assetId,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            issue,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
           ),
           const SizedBox(height: 12),
           Align(

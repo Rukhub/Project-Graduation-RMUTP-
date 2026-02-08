@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'app_drawer.dart';
 import 'api_service.dart';
+import 'services/firebase_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'models/location_model.dart';
+// import 'models/asset_model.dart';
 
 class ReportProblemScreen extends StatefulWidget {
   // รับข้อมูลแบบ Optional เพราะถ้าเข้ามาจากหน้า Menu จะยังไม่มีข้อมูล
@@ -18,9 +24,12 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
   // State สำหรับการเลือกครุภัณฑ์
   int selectedFloor = 1;
   String? selectedRoom;
-  int? selectedRoomId;
+  dynamic selectedRoomId;
   String? selectedEquipmentId;
   Map<String, dynamic>? currentEquipment;
+  final TextEditingController _equipmentSearchController =
+      TextEditingController();
+  String _equipmentSearchQuery = '';
 
   // Form State
   final ImagePicker _picker = ImagePicker();
@@ -28,11 +37,17 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
   final TextEditingController _reasonController = TextEditingController();
   List<String> reportImages = [];
 
+  bool _hasOpenReport = false;
+  bool _isCheckingOpenReport = false;
+  String? _openReportReporterName;
+
   // API Data
   List<Map<String, dynamic>> locations = [];
+  List<int> availableFloors = [];
   List<Map<String, dynamic>> assetsInRoom = [];
   bool isLoadingLocations = true;
   bool isLoadingAssets = false;
+  Map<String, String> categoryMap = {};
 
   @override
   void initState() {
@@ -52,65 +67,260 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     }
 
     _loadLocations();
+    _loadCategories();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshOpenReportState(showSnackbar: false);
+    });
+  }
+
+  Future<void> _refreshOpenReportState({required bool showSnackbar}) async {
+    final eq = currentEquipment;
+    if (eq == null) {
+      if (!mounted) return;
+      setState(() {
+        _hasOpenReport = false;
+        _isCheckingOpenReport = false;
+        _openReportReporterName = null;
+      });
+      return;
+    }
+
+    final assetId = (eq['asset_id'] ?? eq['id'])?.toString() ?? '';
+    if (assetId.trim().isEmpty) return;
+
+    if (!mounted) return;
+    setState(() {
+      _isCheckingOpenReport = true;
+    });
+
+    bool hasOpen = false;
+    String? reporterName;
+    try {
+      final open = await FirebaseService().getLatestOpenReportForAsset(
+        assetId.trim(),
+      );
+      if (open != null) {
+        hasOpen = true;
+        reporterName = (open['reporter_name'] ?? open['reporterName'])
+            ?.toString();
+      } else {
+        hasOpen = false;
+        reporterName = null;
+      }
+    } catch (_) {
+      hasOpen = false;
+      reporterName = null;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _hasOpenReport = hasOpen;
+      _isCheckingOpenReport = false;
+      _openReportReporterName = reporterName;
+    });
+
+    if (showSnackbar && hasOpen) {
+      final who =
+          (_openReportReporterName != null &&
+              _openReportReporterName!.trim().isNotEmpty)
+          ? _openReportReporterName!.trim()
+          : 'มีคนอื่น';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$who แจ้งปัญหาแล้ว กรุณารอเจ้าหน้าที่ดำเนินการ'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = await FirebaseService().getAssetCategories();
+      if (mounted) {
+        setState(() {
+          categoryMap = {
+            for (var cat in categories)
+              if (cat['id'] != null)
+                cat['id'].toString(): cat['name']?.toString() ?? '',
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading categories: $e');
+    }
   }
 
   Future<void> _loadLocations() async {
     setState(() => isLoadingLocations = true);
     try {
-      final data = await ApiService().getLocations();
+      final data = await FirebaseService().getLocations();
       setState(() {
-        locations = data;
+        locations = data
+            .map(
+              (loc) => {
+                'location_id': loc.locationId,
+                'room_name': loc.roomName,
+                'floor': loc.floor,
+              },
+            )
+            .toList();
+        final floorsSet = <int>{};
+        for (final loc in locations) {
+          final f = _parseFloorInt(loc['floor']);
+          if (f != null) floorsSet.add(f);
+        }
+        availableFloors = floorsSet.toList()..sort();
+        if (availableFloors.isNotEmpty &&
+            !availableFloors.contains(selectedFloor)) {
+          selectedFloor = availableFloors.first;
+          selectedRoom = null;
+          selectedRoomId = null;
+          selectedEquipmentId = null;
+          currentEquipment = null;
+          _equipmentSearchController.clear();
+          _equipmentSearchQuery = '';
+          assetsInRoom = [];
+        }
         isLoadingLocations = false;
       });
     } catch (e) {
-      debugPrint('Error loading locations: $e');
+      debugPrint('🚨 Error loading Firebase locations: $e');
       setState(() => isLoadingLocations = false);
     }
   }
 
-  Future<void> _loadAssetsInRoom(int locationId) async {
-    setState(() => isLoadingAssets = true);
+  int? _parseFloorInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    final s = value.toString().trim();
+    if (s.isEmpty) return null;
+    final digits = RegExp(r'\d+').firstMatch(s)?.group(0);
+    if (digits == null) return null;
+    return int.tryParse(digits);
+  }
+
+  Future<void> _loadAssetsInRoom(dynamic locationId) async {
+    setState(() {
+      isLoadingAssets = true;
+      assetsInRoom = [];
+    });
     try {
-      final data = await ApiService().getAssetsByLocation(locationId);
+      final snapshot = await FirebaseService().getAssets();
+      final targetId = locationId?.toString();
+      final roomAssets = snapshot
+          .where((a) => a.locationId?.toString() == targetId)
+          .toList();
       setState(() {
-        assetsInRoom = data;
+        assetsInRoom = roomAssets
+            .map(
+              (a) => {
+                'asset_id': a.assetId,
+                'asset_type': a.assetType,
+                'status': a.status,
+              },
+            )
+            .toList();
         isLoadingAssets = false;
       });
     } catch (e) {
-      debugPrint('Error loading assets: $e');
+      debugPrint('🚨 Error loading assets: $e');
       setState(() => isLoadingAssets = false);
     }
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _reasonController.dispose();
+    _equipmentSearchController.dispose();
+    super.dispose();
+  }
+
   List<Map<String, dynamic>> getRoomsForFloor(int floor) {
     return locations.where((loc) {
-      final floorStr = loc['floor']?.toString() ?? '';
-      return floorStr.contains('$floor') || floorStr == 'ชั้น $floor';
+      final f = _parseFloorInt(loc['floor']);
+      return f == floor;
     }).toList();
   }
 
   Future<void> _pickImageFromGallery() async {
+    if (_hasOpenReport || _isCheckingOpenReport) return;
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
       setState(() {
-        reportImages.add(image.path);
+        reportImages = [image.path];
       });
     }
   }
 
   Future<void> _takePhoto() async {
+    if (_hasOpenReport || _isCheckingOpenReport) return;
     final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
     if (photo != null) {
       setState(() {
-        reportImages.add(photo.path);
+        reportImages = [photo.path];
       });
     }
   }
 
   void _deleteImage(int index) {
+    if (_hasOpenReport || _isCheckingOpenReport) return;
     setState(() {
-      reportImages.removeAt(index);
+      reportImages = [];
     });
+  }
+
+  void _openLocalImagePreview(String path) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          backgroundColor: Colors.transparent,
+          child: Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Image.file(
+                    File(path),
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        padding: const EdgeInsets.all(24),
+                        color: Colors.white,
+                        child: const Text('ไม่สามารถแสดงรูปได้'),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: InkWell(
+                  onTap: () => Navigator.pop(dialogContext),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _showImageSourceDialog() {
@@ -177,6 +387,26 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
+    if (_isCheckingOpenReport) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('กำลังตรวจสอบสถานะการแจ้งปัญหา...'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (_hasOpenReport) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('มีการแจ้งปัญหาแล้ว กรุณารอเจ้าหน้าที่ดำเนินการ'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     if (currentEquipment == null) {
       messenger.showSnackBar(
         const SnackBar(
@@ -207,6 +437,27 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       return;
     }
 
+    // Call Firestore
+    String assetId = (currentEquipment!['asset_id'] ?? currentEquipment!['id'])
+        .toString();
+
+    try {
+      final hasOpen = await FirebaseService().hasOpenReportForAsset(assetId);
+      if (hasOpen) {
+        if (!context.mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('มีการแจ้งปัญหาแล้ว กรุณารอเจ้าหน้าที่ดำเนินการ'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        setState(() {
+          _hasOpenReport = true;
+        });
+        return;
+      }
+    } catch (_) {}
+
     // Show Loading
     showDialog(
       context: context,
@@ -219,17 +470,18 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     // Upload images first if any
     String? uploadedImageUrl;
     if (reportImages.isNotEmpty) {
-      debugPrint('�� กำลังอัปโหลดรูปภาพ ${reportImages.length} รูป');
-
-      // อัปโหลดรูปแรก (โบรับแค่ image_url เดียว)
+      // อัปโหลดรูปแรก (รองรับรูปเดียว)
       final firstImagePath = reportImages.first;
-      uploadedImageUrl = await ApiService().uploadImage(File(firstImagePath));
+      final assetIdForUpload =
+          (currentEquipment!['asset_id'] ?? currentEquipment!['id']).toString();
+      uploadedImageUrl = await FirebaseService().uploadReportImage(
+        File(firstImagePath),
+        assetIdForUpload,
+      );
 
       if (uploadedImageUrl == null) {
-        debugPrint('❌ อัปโหลดรูปภาพไม่สำเร็จ');
         if (!context.mounted) return;
-        navigator.pop(); // ปิด loading
-
+        navigator.pop();
         messenger.showSnackBar(
           const SnackBar(
             content: Text('อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'),
@@ -240,86 +492,98 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       }
     }
 
-    // Call API
-    String assetId = (currentEquipment!['asset_id'] ?? currentEquipment!['id'])
-        .toString();
+    // Get current user ID
+    final user = FirebaseAuth.instance.currentUser;
+    final String reporterId = user?.uid ?? '';
 
-    final result = await ApiService().reportProblem(
-      assetId,
-      _nameController.text.trim(),
-      _reasonController.text.trim(),
-      imageUrl: uploadedImageUrl, // ส่ง URL ที่อัปโหลดแล้ว
+    final report = {
+      'asset_id': assetId,
+      if (currentEquipment?['asset_name']?.toString().trim().isNotEmpty == true)
+        'asset_name': currentEquipment!['asset_name']?.toString().trim(),
+      'reporter_name': _nameController.text.trim(),
+      'reporter_id': reporterId, //
+      //
+      'report_remark': _reasonController.text.trim(),
+      'report_image_url': uploadedImageUrl ?? '',
+      'reported_at': FieldValue.serverTimestamp(), //
+      'report_status': 1,
+    };
+
+    try {
+      await FirebaseService().createReport(report, shouldCreateAuditLog: false);
+
+      // Update asset status to 'ชำรุด' immediately after reporting
+      await FirebaseService().updateAsset(assetId, {
+        'asset_status': 2,
+        'audited_at': FieldValue.serverTimestamp(),
+        'reporter_name': _nameController.text.trim(),
+        'issue_detail': _reasonController.text.trim(),
+        'report_images':
+            uploadedImageUrl != null && uploadedImageUrl.trim().isNotEmpty
+            ? uploadedImageUrl.trim()
+            : '',
+        'repairer_id': null,
+        'condemned_at': FieldValue.delete(),
+      });
+
+      if (!mounted) return;
+      // Close Loading Dialog
+      Navigator.pop(context);
+
+      _handleReportSuccess(assetId, uploadedImageUrl, messenger, navigator);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading
+
+      final msg = e.toString();
+      if (msg.contains('DUPLICATE_OPEN_REPORT')) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('มีการแจ้งปัญหาแล้ว กรุณารอเจ้าหน้าที่ดำเนินการ'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('เกิดข้อผิดพลาด: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _handleReportSuccess(
+    String assetId,
+    String? uploadedImageUrl,
+    ScaffoldMessengerState messenger,
+    NavigatorState navigator,
+  ) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: const [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 12),
+            Expanded(child: Text('ส่งแจ้งปัญหาสำเร็จ')),
+          ],
+        ),
+        backgroundColor: const Color(0xFF99CD60),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
 
-    // Sync reporter info AND Image to Asset record as well
-    if (result['success'] == true) {
-      try {
-        final Map<String, dynamic> updateData = Map.from(currentEquipment!);
-        updateData['status'] = 'ชำรุด';
-        updateData['reporter_name'] = _nameController.text.trim();
-        updateData['issue_detail'] = _reasonController.text.trim();
-
-        // ⭐ Bo's instruction: DON'T overwrite asset.image_url with report image.
-        // We sync report details and optionally 'report_images' if Bo added that column.
-        updateData['report_images'] = uploadedImageUrl ?? '';
-
-        /*
-        if (uploadedImageUrl != null) {
-          updateData['image_url'] = uploadedImageUrl;
-        }
-        */
-
-        // Ensure type compatibility
-        if (updateData['type'] == null && updateData['asset_type'] != null) {
-          updateData['type'] = updateData['asset_type'];
-        }
-
-        await ApiService().updateAsset(assetId, updateData);
-      } catch (e) {
-        debugPrint('Error syncing reporter info to asset: $e');
-        // Non-fatal, continue
-      }
-    }
-
-    // Close Loading
-    if (!context.mounted) return;
-    navigator.pop();
-
-    if (result['success']) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(child: Text('ส่งแจ้งปัญหาสำเร็จ')),
-            ],
-          ),
-          backgroundColor: const Color(0xFF99CD60),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-
-      // Return updated data to previous screen
-      navigator.pop({
-        'status': 'ชำรุด',
-        'reporterName': _nameController.text.trim(),
-        'reportReason': _reasonController.text.trim(),
-        'issue_detail': _reasonController.text.trim(),
-        'reportImages': (uploadedImageUrl != null) ? [uploadedImageUrl] : [],
-      });
-    } else {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(result['message'] ?? 'เกิดข้อผิดพลาด'),
-          backgroundColor: const Color(0xFFE44F5A),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    // Return updated data to previous screen
+    navigator.pop({
+      'status': 'ชำรุด',
+      'reporterName': _nameController.text.trim(),
+      'reportReason': _reasonController.text.trim(),
+      'issue_detail': _reasonController.text.trim(),
+      'reportImages': (uploadedImageUrl != null) ? [uploadedImageUrl] : [],
+    });
   }
 
   @override
@@ -327,76 +591,321 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     bool isSelectionMode = widget.equipment == null;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFE44F5A),
-        elevation: 0,
-        leading: IconButton(
-          icon: const CircleAvatar(
-            backgroundColor: Colors.white,
-            radius: 18,
-            child: Icon(
-              Icons.arrow_back_ios_new,
-              size: 16,
-              color: Color(0xFFE44F5A),
-            ),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        centerTitle: true,
-        title: const Text(
-          'แจ้งปัญหา/ขัดข้อง',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        toolbarHeight: 80,
-      ),
+      backgroundColor: const Color(0xFFF7F7FB),
+      drawer: const AppDrawer(),
       body: isLoadingLocations
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFFE44F5A)),
             )
-          : ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                // ส่วนเลือกครุภัณฑ์
-                if (isSelectionMode) ...[
-                  _buildSelectionSection(),
-                  const SizedBox(height: 25),
-                ],
-
-                // แสดงฟอร์มเมื่อมีข้อมูลครุภัณฑ์แล้ว
-                if (currentEquipment != null) ...[
-                  _buildEquipmentInfoCard(),
-                  const SizedBox(height: 25),
-                  _buildReportForm(),
-                ] else if (isSelectionMode) ...[
-                  _buildEmptyState(),
-                ],
+          : CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  pinned: true,
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFE44F5A),
+                  leading: IconButton(
+                    icon: const CircleAvatar(
+                      backgroundColor: Colors.white,
+                      radius: 18,
+                      child: Icon(
+                        Icons.arrow_back_ios_new,
+                        size: 16,
+                        color: Color(0xFFE44F5A),
+                      ),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  actions: [
+                    Builder(
+                      builder: (context) {
+                        return IconButton(
+                          tooltip: 'เมนู',
+                          icon: const Icon(
+                            Icons.menu,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                          onPressed: () {
+                            Scaffold.of(context).openDrawer();
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                  centerTitle: true,
+                  title: const Text(
+                    'แจ้งปัญหา/ขัดข้อง',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  expandedHeight: 120,
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFE44F5A), Color(0xFFB81F3A)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: SafeArea(
+                        child: Align(
+                          alignment: Alignment.bottomLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                            child: Text(
+                              currentEquipment == null
+                                  ? 'ขั้นตอนที่ 1: เลือกครุภัณฑ์'
+                                  : 'ขั้นตอนที่ 2: กรอกรายละเอียดและส่งแจ้งปัญหา',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (isSelectionMode) ...[
+                          _buildSelectionSection(),
+                          const SizedBox(height: 16),
+                        ],
+                        if (currentEquipment != null) ...[
+                          _buildEquipmentInfoCard(),
+                          if (_isCheckingOpenReport || _hasOpenReport) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: _isCheckingOpenReport
+                                    ? Colors.blue.shade50
+                                    : Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: _isCheckingOpenReport
+                                      ? Colors.blue.shade200
+                                      : Colors.orange.shade200,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    _isCheckingOpenReport
+                                        ? Icons.hourglass_top_rounded
+                                        : Icons.warning_amber_rounded,
+                                    color: _isCheckingOpenReport
+                                        ? Colors.blue
+                                        : Colors.orange,
+                                    size: 28,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _isCheckingOpenReport
+                                              ? 'กำลังตรวจสอบการแจ้งปัญหา'
+                                              : 'แจ้งซ้ำไม่ได้',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: _isCheckingOpenReport
+                                                ? Colors.blue
+                                                : Colors.orange,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _isCheckingOpenReport
+                                              ? 'กรุณารอสักครู่ ระบบกำลังตรวจสอบว่ามีคนแจ้งปัญหาแล้วหรือไม่'
+                                              : ((_openReportReporterName !=
+                                                            null &&
+                                                        _openReportReporterName!
+                                                            .trim()
+                                                            .isNotEmpty)
+                                                    ? 'ตอนนี้มี ${_openReportReporterName!.trim()} แจ้งปัญหาอยู่แล้ว\nกรุณารอเจ้าหน้าที่ดำเนินการ'
+                                                    : 'มีคนแจ้งปัญหาอยู่แล้ว\nกรุณารอเจ้าหน้าที่ดำเนินการ'),
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.35,
+                                            color: _isCheckingOpenReport
+                                                ? Colors.blue.shade800
+                                                : Colors.orange.shade800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          _buildReportForm(),
+                        ] else if (isSelectionMode) ...[
+                          _buildEmptyState(),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 16,
+              offset: const Offset(0, -6),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed:
+                  (currentEquipment == null ||
+                      _hasOpenReport ||
+                      _isCheckingOpenReport)
+                  ? null
+                  : _submitReport,
+              icon: const Icon(Icons.send_rounded),
+              label: Text(
+                currentEquipment == null
+                    ? 'เลือกครุภัณฑ์ก่อนจึงส่งได้'
+                    : _hasOpenReport
+                    ? 'มีคนแจ้งแล้ว'
+                    : _isCheckingOpenReport
+                    ? 'กำลังตรวจสอบ...'
+                    : 'ส่งแจ้งปัญหา',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE44F5A),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade600,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyImageState() {
+    return SizedBox(
+      width: double.infinity,
+      child: Container(
+        padding: const EdgeInsets.all(35),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200, width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.photo_camera_outlined,
+              size: 55,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'ยังไม่มีรูปภาพ',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade600,
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: (_hasOpenReport || _isCheckingOpenReport)
+                  ? null
+                  : _showImageSourceDialog,
+              icon: const Icon(
+                Icons.add_photo_alternate,
+                color: Colors.white,
+                size: 20,
+              ),
+              label: const Text(
+                'เพิ่มรูปภาพ',
+                style: TextStyle(color: Colors.white, fontSize: 15),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE44F5A),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildSelectionSection() {
     final roomsInFloor = getRoomsForFloor(selectedFloor);
+    final filteredAssets = assetsInRoom.where((eq) {
+      if (_equipmentSearchQuery.trim().isEmpty) return true;
+      final q = _equipmentSearchQuery.trim().toLowerCase();
+      final assetId = (eq['asset_id'] ?? eq['id']).toString().toLowerCase();
+      final assetType = (eq['asset_type'] ?? eq['type'])
+          .toString()
+          .toLowerCase();
+      return assetId.contains(q) || assetType.contains(q);
+    }).toList();
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, Colors.grey.shade50],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -406,36 +915,32 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFE44F5A), Color(0xFFD43F50)],
-                  ),
+                  color: const Color(0xFFFFEFF2),
                   borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFE44F5A).withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
                 ),
-                child: const Icon(Icons.search, color: Colors.white, size: 24),
+                child: const Icon(
+                  Icons.location_searching_rounded,
+                  color: Color(0xFFE44F5A),
+                ),
               ),
-              const SizedBox(width: 14),
-              const Text(
-                'ค้นหาครุภัณฑ์',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'เลือกห้องและครุภัณฑ์',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black87,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
-          // เลือกชั้น
           _buildDropdownLabel('ชั้น'),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -448,7 +953,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                   Icons.keyboard_arrow_down,
                   color: Color(0xFFE44F5A),
                 ),
-                items: List.generate(6, (i) => i + 1).map((floor) {
+                items: availableFloors.map((floor) {
                   return DropdownMenuItem(
                     value: floor,
                     child: Text(
@@ -458,12 +963,15 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                   );
                 }).toList(),
                 onChanged: (value) {
+                  if (value == null) return;
                   setState(() {
-                    selectedFloor = value!;
+                    selectedFloor = value;
                     selectedRoom = null;
                     selectedRoomId = null;
                     selectedEquipmentId = null;
                     currentEquipment = null;
+                    _equipmentSearchController.clear();
+                    _equipmentSearchQuery = '';
                     assetsInRoom = [];
                   });
                 },
@@ -474,13 +982,42 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
 
           // เลือกห้อง
           _buildDropdownLabel('ห้อง'),
+          if (roomsInFloor.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFEFF2),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFFE44F5A).withValues(alpha: 0.35),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Color(0xFFE44F5A)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'ไม่มีห้องในชั้น $selectedFloor',
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (roomsInFloor.isEmpty) const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             decoration: _buildDropdownDecoration(),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: selectedRoom,
-                hint: const Text('เลือกห้อง'),
+                hint: Text(
+                  roomsInFloor.isEmpty ? 'ไม่มีห้องในชั้นนี้' : 'เลือกห้อง',
+                ),
                 isExpanded: true,
                 icon: const Icon(
                   Icons.keyboard_arrow_down,
@@ -495,79 +1032,141 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                     ),
                   );
                 }).toList(),
-                onChanged: (value) {
-                  final room = roomsInFloor.firstWhere(
-                    (r) => r['room_name'] == value,
-                  );
-                  setState(() {
-                    selectedRoom = value;
-                    selectedRoomId = room['location_id'] ?? room['id'];
-                    selectedEquipmentId = null;
-                    currentEquipment = null;
-                  });
-                  if (selectedRoomId != null) {
-                    _loadAssetsInRoom(selectedRoomId!);
-                  }
-                },
+                onChanged: roomsInFloor.isEmpty
+                    ? null
+                    : (value) {
+                        final room = roomsInFloor.firstWhere(
+                          (r) => r['room_name'] == value,
+                        );
+                        setState(() {
+                          selectedRoom = value;
+                          selectedRoomId = room['location_id'] ?? room['id'];
+                          selectedEquipmentId = null;
+                          currentEquipment = null;
+                          _equipmentSearchController.clear();
+                          _equipmentSearchQuery = '';
+                        });
+                        if (selectedRoomId != null) {
+                          _loadAssetsInRoom(selectedRoomId);
+                        }
+                      },
               ),
             ),
           ),
           const SizedBox(height: 18),
 
-          // เลือกครุภัณฑ์
           _buildDropdownLabel('ครุภัณฑ์'),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.all(16),
             decoration: _buildDropdownDecoration(),
-            child: isLoadingAssets
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Center(
-                      child: SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _equipmentSearchController,
+                  enabled: !isLoadingAssets && selectedRoomId != null,
+                  decoration: InputDecoration(
+                    hintText: selectedRoomId == null
+                        ? 'กรุณาเลือกห้องก่อน'
+                        : 'ค้นหาด้วยรหัส/ประเภทครุภัณฑ์',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF7F7FB),
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    setState(() {
+                      _equipmentSearchQuery = v;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (isLoadingAssets)
+                  const Center(
+                    child: SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedEquipmentId,
-                      hint: Text(
-                        assetsInRoom.isEmpty
-                            ? 'ไม่พบครุภัณฑ์ในห้องนี้'
-                            : 'เลือกครุภัณฑ์',
-                      ),
-                      isExpanded: true,
-                      icon: const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: Color(0xFFE44F5A),
-                      ),
-                      items: assetsInRoom.map((eq) {
-                        final assetId = eq['asset_id'] ?? eq['id'];
-                        return DropdownMenuItem(
-                          value: assetId.toString(),
-                          child: Text(
-                            '${eq['asset_type'] ?? eq['type']} - $assetId',
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 16),
+                else if (selectedRoomId == null)
+                  Text(
+                    'เลือกห้องเพื่อแสดงรายการครุภัณฑ์',
+                    style: TextStyle(color: Colors.grey.shade600),
+                    textAlign: TextAlign.center,
+                  )
+                else if (filteredAssets.isEmpty)
+                  Text(
+                    assetsInRoom.isEmpty
+                        ? 'ไม่พบครุภัณฑ์ในห้องนี้'
+                        : 'ไม่พบครุภัณฑ์ที่ตรงกับคำค้นหา',
+                    style: TextStyle(color: Colors.grey.shade600),
+                    textAlign: TextAlign.center,
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filteredAssets.length,
+                      separatorBuilder: (context, index) =>
+                          Divider(height: 1, color: Colors.grey.shade200),
+                      itemBuilder: (context, index) {
+                        final eq = filteredAssets[index];
+                        final assetId = (eq['asset_id'] ?? eq['id']).toString();
+                        final assetType = (eq['asset_type'] ?? eq['type'])
+                            .toString();
+                        final isSelected = selectedEquipmentId == assetId;
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8,
                           ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          tileColor: isSelected
+                              ? const Color(0xFFFFEFF2)
+                              : Colors.transparent,
+                          title: Text(
+                            assetId,
+                            style: TextStyle(
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            assetType,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.chevron_right,
+                            color: isSelected
+                                ? const Color(0xFF99CD60)
+                                : Colors.grey.shade400,
+                          ),
+                          onTap: () {
+                            setState(() {
+                              selectedEquipmentId = assetId;
+                              currentEquipment = eq;
+                            });
+
+                            _refreshOpenReportState(showSnackbar: true);
+                          },
                         );
-                      }).toList(),
-                      onChanged: assetsInRoom.isEmpty
-                          ? null
-                          : (value) {
-                              setState(() {
-                                selectedEquipmentId = value;
-                                currentEquipment = assetsInRoom.firstWhere(
-                                  (e) =>
-                                      (e['asset_id'] ?? e['id']).toString() ==
-                                      value,
-                                );
-                              });
-                            },
+                      },
                     ),
                   ),
+              ],
+            ),
           ),
         ],
       ),
@@ -579,8 +1178,12 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
         currentEquipment?['asset_id'] ??
         currentEquipment?['id'] ??
         'ไม่ระบุรหัส';
-    final assetType =
+    String assetType =
         currentEquipment?['asset_type'] ?? currentEquipment?['type'] ?? '';
+    // Map ID to Name if possible
+    if (categoryMap.isNotEmpty && categoryMap.containsKey(assetType)) {
+      assetType = categoryMap[assetType]!;
+    }
     final roomDisplayName = selectedRoom ?? widget.roomName ?? '';
 
     return Container(
@@ -647,11 +1250,15 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                       color: Colors.grey.shade600,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      '$assetType • $roomDisplayName',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade700,
+                    Expanded(
+                      child: Text(
+                        '$assetType • $roomDisplayName',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                       ),
                     ),
                   ],
@@ -726,11 +1333,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
 
         // รูปภาพหลักฐาน
         _buildImageSection(),
-        const SizedBox(height: 30),
-
-        // ปุ่มส่งแจ้งปัญหา
-        _buildSubmitButton(),
-        const SizedBox(height: 30),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -835,21 +1438,64 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
           const SizedBox(height: 16),
           reportImages.isEmpty
               ? _buildEmptyImageState()
-              : GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemCount: reportImages.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == reportImages.length) {
-                      return _buildAddImageButton();
-                    }
-                    return _buildImageCard(index);
-                  },
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _openLocalImagePreview(reportImages.first),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: double.infinity,
+                          height: 280,
+                          color: Colors.grey.shade100,
+                          child: Image.file(
+                            File(reportImages.first),
+                            width: double.infinity,
+                            height: 280,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  'ไม่สามารถแสดงรูปได้',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _showImageSourceDialog,
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          label: const Text('เปลี่ยนรูป'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFE44F5A),
+                            side: BorderSide(
+                              color: const Color(
+                                0xFFE44F5A,
+                              ).withValues(alpha: 0.4),
+                            ),
+                            shape: const StadiumBorder(),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        TextButton.icon(
+                          onPressed: () => _deleteImage(0),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('ลบ'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
         ],
       ),
@@ -955,113 +1601,6 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
           color: Colors.black.withValues(alpha: 0.04),
           blurRadius: 8,
           offset: const Offset(0, 2),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyImageState() {
-    return Container(
-      padding: const EdgeInsets.all(35),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200, width: 2),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.photo_camera_outlined,
-            size: 55,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'ยังไม่มีรูปภาพ',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade600,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _showImageSourceDialog,
-            icon: const Icon(
-              Icons.add_photo_alternate,
-              color: Colors.white,
-              size: 20,
-            ),
-            label: const Text(
-              'เพิ่มรูปภาพ',
-              style: TextStyle(color: Colors.white, fontSize: 15),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE44F5A),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddImageButton() {
-    return InkWell(
-      onTap: _showImageSourceDialog,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFE44F5A).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: const Color(0xFFE44F5A).withValues(alpha: 0.3),
-            width: 2,
-          ),
-        ),
-        child: const Icon(
-          Icons.add_photo_alternate,
-          color: Color(0xFFE44F5A),
-          size: 38,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImageCard(int index) {
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            image: DecorationImage(
-              image: FileImage(File(reportImages[index])),
-              fit: BoxFit.cover,
-            ),
-          ),
-        ),
-        Positioned(
-          top: 6,
-          right: 6,
-          child: InkWell(
-            onTap: () => _deleteImage(index),
-            child: Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE44F5A),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.close, color: Colors.white, size: 16),
-            ),
-          ),
         ),
       ],
     );

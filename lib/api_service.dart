@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'services/firebase_service.dart';
 
 class ApiService {
   // Singleton Pattern
@@ -97,6 +98,29 @@ class ApiService {
     } catch (e) {
       debugPrint('🚨 Login error: $e');
       return null;
+    }
+  }
+
+  /// ดึงข้อมูลโปรไฟล์ล่าสุดจาก Firestore มาอัปเดต currentUser
+  Future<void> refreshCurrentUser() async {
+    final uid = currentUser?['uid']?.toString();
+    if (uid != null) {
+      try {
+        final firebaseService = FirebaseService();
+        final freshProfile = await firebaseService.getUserProfileByUid(uid);
+        if (freshProfile != null) {
+          currentUser = {
+            ...currentUser!,
+            'fullname': freshProfile.fullname,
+            'photo_url': freshProfile.photoUrl,
+            'role_num': freshProfile.role,
+            'is_approved': freshProfile.isApproved,
+          };
+          debugPrint('👤 User profile refreshed: ${freshProfile.fullname}');
+        }
+      } catch (e) {
+        debugPrint('🚨 Error refreshing user profile: $e');
+      }
     }
   }
 
@@ -306,18 +330,19 @@ class ApiService {
               assetData['type'], // App uses 'type', Backend uses 'asset_type'
           'brand_model': assetData['brand_model'],
           'location_id': assetData['location_id'],
-          'status': assetData['status'],
-          'checker_name':
-              assetData['inspectorName'], // App uses 'inspectorName'
-          'image_url':
-              // ✅ รองรับทั้ง 'image_url' (จาก krupan_room) และ 'images' (จาก add_equipment_quick)
-              assetData['image_url']?.toString().isNotEmpty == true
-              ? assetData['image_url']
-              : (assetData['images'] != null &&
-                    (assetData['images'] as List).isNotEmpty)
-              ? assetData['images'][0]
-              : null,
-          'created_by': assetData['created_by'], // Add created_by
+          'asset_status': assetData['asset_status'] ?? assetData['status'],
+          'auditor_name':
+              assetData['auditor_name'] ?? assetData['inspectorName'],
+          'asset_image_url':
+              assetData['asset_image_url']?.toString().isNotEmpty == true
+              ? assetData['asset_image_url']
+              : ((assetData['images'] != null &&
+                        (assetData['images'] as List).isNotEmpty)
+                    ? assetData['images'][0]
+                    : null),
+          'location_name': assetData['location_name'],
+          'created_id': assetData['created_id'],
+          'created_name': assetData['created_name'],
           // Note: Backend might ignore extra fields, so this is safe.
         }),
       );
@@ -325,7 +350,7 @@ class ApiService {
       // 🔍 Debug: ดูว่าส่งอะไรไป Backend
       debugPrint('📤 Request Body:');
       debugPrint('  - asset_id: ${assetData['asset_id']}');
-      debugPrint('  - created_by: ${assetData['created_by']}');
+      debugPrint('  - created_name: ${assetData['created_name']}');
       debugPrint('  - location_id: ${assetData['location_id']}');
 
       debugPrint('📡 Add Asset Status: ${response.statusCode}');
@@ -394,7 +419,7 @@ class ApiService {
   }
 
   // แก้ไขครุภัณฑ์ (Asset)
-  // Backend ต้องการครบทุก field: asset_id, asset_type, brand_model, location_id, status, checker_name, image_url
+  // Backend ต้องการครบทุก field: asset_id, asset_type, brand_model, location_id, asset_status, auditor_name, asset_image_url
   Future<Map<String, dynamic>> updateAsset(
     String id,
     Map<String, dynamic> assetData,
@@ -416,15 +441,18 @@ class ApiService {
           'asset_type': assetData['type'],
           'brand_model': assetData['brand_model'],
           'location_id': assetData['location_id'],
-          'status': assetData['status'],
-          'checker_name': assetData['inspectorName'],
+          'asset_status': assetData['asset_status'] ?? assetData['status'],
+          'auditor_name':
+              assetData['auditor_name'] ?? assetData['inspectorName'],
           'reporter_name': assetData['reporter_name'],
           'issue_detail': assetData['issue_detail'],
-          'image_url':
-              (assetData['images'] != null &&
-                  (assetData['images'] as List).isNotEmpty)
-              ? assetData['images'][0]
-              : (assetData['image_url'] ?? ''), // Fallback
+          'asset_image_url':
+              (assetData['asset_image_url']?.toString().isNotEmpty == true)
+              ? assetData['asset_image_url']
+              : ((assetData['images'] != null &&
+                        (assetData['images'] as List).isNotEmpty)
+                    ? assetData['images'][0]
+                    : ''),
         }),
       );
 
@@ -632,7 +660,7 @@ class ApiService {
           'asset_id': assetId,
           'reporter_name': reporterName,
           'issue_detail': issueDetail,
-          if (imageUrl != null) 'image_url': imageUrl, // ส่ง image_url ถ้ามี
+          if (imageUrl != null) 'asset_image_url': imageUrl,
         }),
       );
 
@@ -732,35 +760,6 @@ class ApiService {
     }
   }
 
-  // ⭐ ดึงประวัติการตรวจสอบของ Admin (จาก check_logs)
-  Future<List<Map<String, dynamic>>> getCheckLogsByChecker(
-    String checkerName,
-  ) async {
-    try {
-      final encodedName = Uri.encodeComponent(checkerName);
-      debugPrint('📋 กำลังดึงประวัติการดำเนินการของ: $checkerName');
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/check-logs/checker/$encodedName'),
-        headers: {'ngrok-skip-browser-warning': 'true'},
-      );
-
-      debugPrint('📡 Check Logs Status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        debugPrint('✅ พบ ${data.length} รายการตรวจสอบ');
-        return data.map((e) => Map<String, dynamic>.from(e)).toList();
-      } else {
-        debugPrint('❌ ไม่พบข้อมูล หรือ Server Error');
-        return [];
-      }
-    } catch (e) {
-      debugPrint('🚨 Get check logs by checker error: $e');
-      return [];
-    }
-  }
-
   // ลบรายงานการแจ้งซ่อม
   Future<Map<String, dynamic>> deleteReport(int reportId) async {
     try {
@@ -776,74 +775,6 @@ class ApiService {
       return {'success': false, 'message': 'ลบไม่สำเร็จ'};
     } catch (e) {
       return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
-    }
-  }
-
-  // บันทึกการตรวจสอบครุภัณฑ์ (Check Logs)
-  Future<Map<String, dynamic>> createCheckLog({
-    required String assetId,
-    required int checkerId, // Bo ขอ checker_id
-    required String resultStatus, // Bo ขอ result_status
-    String? remark, // Bo ขอ remark
-    String? imageUrl, // Bo เพิ่มมาใหม่: image_url
-  }) async {
-    try {
-      debugPrint('🔄 กำลังบันทึกการตรวจสอบ: $assetId');
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/check-logs'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        body: jsonEncode({
-          'asset_id': assetId,
-          'checker_id': checkerId,
-          'result_status': resultStatus,
-          'remark': remark ?? '',
-          'image_url': imageUrl ?? '', // ส่ง image_url ไปด้วย
-        }),
-      );
-
-      debugPrint('📡 Check Log Status: ${response.statusCode}');
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return {'success': true, 'message': 'บันทึกการตรวจสอบเรียบร้อยแล้ว'};
-      }
-      return {
-        'success': false,
-        'message': data['message'] ?? 'บันทึกไม่สำเร็จ',
-      };
-    } catch (e) {
-      debugPrint('🚨 Create check log error: $e');
-      return {'success': false, 'message': 'เชื่อมต่อ Server ไม่ได้'};
-    }
-  }
-
-  // ดึงประวัติการตรวจสอบ (Check Logs)
-  Future<List<Map<String, dynamic>>> getCheckLogs(String assetId) async {
-    try {
-      debugPrint('🔄 กำลังเรียก API: $baseUrl/assets/$assetId/check-logs');
-      final response = await http.get(
-        Uri.parse('$baseUrl/assets/$assetId/check-logs'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      );
-
-      debugPrint('📡 Check Logs Status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((e) => Map<String, dynamic>.from(e)).toList();
-      }
-      return [];
-    } catch (e) {
-      debugPrint('🚨 Get check logs error: $e');
-      return [];
     }
   }
 
@@ -1219,7 +1150,7 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final imageUrl = data['image_url'] as String?;
+        final imageUrl = data['asset_image_url'] as String?;
 
         if (imageUrl != null) {
           debugPrint('✅ อัปโหลดสำเร็จ: $imageUrl');
