@@ -123,6 +123,21 @@ class ReportCard extends StatelessWidget {
     final int statusCode =
         _reportStatusToCode(report['report_status'] ?? report['status']);
 
+    final String worker =
+        report['worker_name']?.toString().trim().isNotEmpty == true
+            ? report['worker_name']?.toString() ?? ''
+            : (report['worker_id']?.toString() ?? '');
+
+    final String cancelledNote =
+        (report['finished_remark'] ??
+                    report['remark_finished'] ??
+                    report['remark_completed'] ??
+                    report['remark_broken'])
+                ?.toString() ??
+            '';
+    final String remarkText =
+        (statusCode == 4 && cancelledNote.trim().isNotEmpty) ? cancelledNote : issue;
+
     final String imageUrl = isRepairAgain
         ? ''
         : (report['report_image_url']?.toString() ?? '');
@@ -187,29 +202,80 @@ class ReportCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (reportIdDisplay != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      reportIdDisplay,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  if (reporter.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.person_outline,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            reporter,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                  const SizedBox(height: 6),
 
-                  // Issue
-                  Text(
-                    issue,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
+                  if (statusCode == 4 && worker.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.handyman_outlined,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'ผู้ดำเนินการ: $worker',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  ],
+
+                  const SizedBox(height: 6),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'หมายเหตุ: $remarkText',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
 
@@ -232,22 +298,23 @@ class ReportCard extends StatelessWidget {
                     ],
                   ),
 
-                  if (reporter.trim().isNotEmpty) ...[
+                  if (statusCode == 2 && worker.trim().isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         Icon(
-                          Icons.person_outline,
+                          Icons.handyman_outlined,
                           size: 14,
                           color: Colors.grey.shade500,
                         ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            reporter,
+                            'กำลังซ่อมโดย: $worker',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

@@ -365,38 +365,6 @@ class _LoginPageState extends State<LoginPage> {
                       'Login with your others account',
                       style: TextStyle(color: Colors.grey),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        TextButton.icon(
-                          onPressed: () => _handleBypassLogin(isAdmin: true),
-                          icon: const Icon(
-                            Icons.admin_panel_settings,
-                            color: Colors.red,
-                          ),
-                          label: const Text(
-                            'Dev (Admin)',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        TextButton.icon(
-                          onPressed: () => _handleBypassLogin(isAdmin: false),
-                          icon: const Icon(Icons.person, color: Colors.green),
-                          label: const Text(
-                            'Dev (User)',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),

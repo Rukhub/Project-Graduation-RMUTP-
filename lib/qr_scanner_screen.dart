@@ -108,15 +108,30 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     setState(() => isProcessing = true);
 
     try {
-      String assetId = qrData;
+      String assetId = qrData.trim();
+      
+      // รองรับหลาย format
       if (qrData.contains('EQUIP:')) {
-        assetId = qrData.split('EQUIP:')[1];
+        assetId = qrData.split('EQUIP:')[1].trim();
+      } else if (qrData.contains('equip:')) {
+        assetId = qrData.split('equip:')[1].trim();
       }
 
       debugPrint('🔍 QR Data: $qrData → Asset ID: $assetId');
 
-      // Use Firestore for faster, reliable lookup
-      final equipment = await FirebaseService().getAssetById(assetId);
+      // ค้นหาแบบปกติ
+      var equipment = await FirebaseService().getAssetById(assetId);
+      
+      // ถ้าไม่เจอ ลอง trim ส่วนหลังหรือค้นหาแบบอื่น
+      if (equipment == null && assetId.contains('-')) {
+        // ลองค้นหาด้วยส่วนแรกของ ID (กรณี ID ยาวมาก)
+        final parts = assetId.split('-');
+        if (parts.length > 2) {
+          final shortId = '${parts[0]}-${parts[1]}';
+          debugPrint('🔍 ลองค้นหาด้วย: $shortId');
+          equipment = await FirebaseService().searchAssetByPartialId(assetId);
+        }
+      }
 
       if (!mounted) return;
 
@@ -169,7 +184,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         }
       } else {
         debugPrint('❌ ไม่พบครุภัณฑ์: $assetId');
-        _showErrorDialog('ไม่พบครุภัณฑ์นี้ในระบบ\n(Asset ID: $assetId)');
+        _showNotFoundDialog(assetId, qrData);
         setState(() => isProcessing = false);
       }
     } catch (e) {
@@ -177,6 +192,79 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       _showErrorDialog('เกิดข้อผิดพลาด: ${e.toString()}');
       setState(() => isProcessing = false);
     }
+  }
+
+  void _showNotFoundDialog(String assetId, String rawQrData) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.search_off, color: Colors.orange, size: 28),
+            SizedBox(width: 10),
+            Text('ไม่พบครุภัณฑ์'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('ไม่พบครุภัณฑ์นี้ในระบบ'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Asset ID:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    assetId,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'กรุณาตรวจสอบว่าครุภัณฑ์นี้มีอยู่ในระบบ',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'ตกลง',
+              style: TextStyle(
+                color: Color(0xFF9A2C2C),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pickImageFromGallery() async {

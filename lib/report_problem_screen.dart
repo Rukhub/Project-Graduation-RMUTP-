@@ -680,7 +680,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                       children: [
                         if (isSelectionMode) ...[
                           _buildSelectionSection(),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 10),
                         ],
                         if (currentEquipment != null) ...[
                           _buildEquipmentInfoCard(),
@@ -896,6 +896,11 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
       return assetId.contains(q) || assetType.contains(q);
     }).toList();
 
+    final double listHeight = filteredAssets.isEmpty
+        ? 0
+        : ((filteredAssets.length * 52.0) + ((filteredAssets.length - 1) * 1.0))
+            .clamp(52.0, 240.0);
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1084,7 +1089,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                     });
                   },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 if (isLoadingAssets)
                   const Center(
                     child: SizedBox(
@@ -1108,61 +1113,73 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                     textAlign: TextAlign.center,
                   )
                 else
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 240),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: filteredAssets.length,
-                      separatorBuilder: (context, index) =>
-                          Divider(height: 1, color: Colors.grey.shade200),
-                      itemBuilder: (context, index) {
-                        final eq = filteredAssets[index];
-                        final assetId = (eq['asset_id'] ?? eq['id']).toString();
-                        final assetType = (eq['asset_type'] ?? eq['type'])
-                            .toString();
-                        final isSelected = selectedEquipmentId == assetId;
-                        return ListTile(
-                          dense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          tileColor: isSelected
-                              ? const Color(0xFFFFEFF2)
-                              : Colors.transparent,
-                          title: Text(
-                            assetId,
-                            style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.w600,
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F7FB),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: SizedBox(
+                      height: listHeight,
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: filteredAssets.length,
+                        separatorBuilder: (context, index) =>
+                            Divider(height: 1, color: Colors.grey.shade200),
+                        itemBuilder: (context, index) {
+                          final eq = filteredAssets[index];
+                          final assetId =
+                              (eq['asset_id'] ?? eq['id']).toString();
+                          final assetType =
+                              (eq['asset_type'] ?? eq['type']).toString();
+                          final isSelected = selectedEquipmentId == assetId;
+                          return ListTile(
+                            dense: true,
+                            visualDensity: VisualDensity.compact,
+                            minVerticalPadding: 0,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 0,
                             ),
-                          ),
-                          subtitle: Text(
-                            assetType,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: Icon(
-                            isSelected
-                                ? Icons.check_circle
-                                : Icons.chevron_right,
-                            color: isSelected
-                                ? const Color(0xFF99CD60)
-                                : Colors.grey.shade400,
-                          ),
-                          onTap: () {
-                            setState(() {
-                              selectedEquipmentId = assetId;
-                              currentEquipment = eq;
-                            });
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            tileColor: isSelected
+                                ? const Color(0xFFFFEFF2)
+                                : Colors.transparent,
+                            title: Text(
+                              assetId,
+                              style: TextStyle(
+                                fontWeight:
+                                    isSelected ? FontWeight.bold : FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              assetType,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Icon(
+                              isSelected
+                                  ? Icons.check_circle
+                                  : Icons.chevron_right,
+                              color: isSelected
+                                  ? const Color(0xFF99CD60)
+                                  : Colors.grey.shade400,
+                            ),
+                            onTap: () {
+                              setState(() {
+                                selectedEquipmentId = assetId;
+                                currentEquipment = eq;
+                              });
 
-                            _refreshOpenReportState(showSnackbar: true);
-                          },
-                        );
-                      },
+                              _refreshOpenReportState(showSnackbar: true);
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ),
               ],

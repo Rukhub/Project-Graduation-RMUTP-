@@ -329,45 +329,6 @@ class _MenuScreenState extends State<MenuScreen> {
           ),
         ),
       ),
-
-      // ===== ปุ่มออกจากระบบ =====
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SizedBox(
-          height: 56,
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              try {
-                await GoogleSignInService().signOut();
-              } catch (_) {}
-              ApiService().currentUser = null;
-
-              if (!context.mounted) return;
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginPage()),
-                (route) => false,
-              );
-            },
-            icon: const Icon(Icons.logout),
-            label: const Text(
-              'ออกจากระบบ',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF9A2C2C),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -410,7 +371,7 @@ class _MenuScreenState extends State<MenuScreen> {
           icon: Icons.check_circle_outline,
         ),
         SummaryCard(
-          title: 'กำลังตรวจสอบ /\nกำลังดำเนินการ',
+          title: 'กำลังดำเนินการ /\nกำลังซ่อม',
           value: isLoadingStats ? '-' : '$myReportsCount',
           color: const Color(0xFFFECC52),
           icon: Icons.access_time_filled,

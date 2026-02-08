@@ -56,7 +56,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
       'color': Color(0xFFFECC52),
       'icon': Icons.build_circle,
     },
-    {'name': 'ซ่อมเสร็จ', 'color': Color(0xFF5593E4), 'icon': Icons.fact_check},
     {'name': 'ซ่อมไม่ได้', 'color': Color(0xFF6B7280), 'icon': Icons.block},
   ];
 
@@ -1956,7 +1955,7 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
     String? currentImageUrl = equipment['asset_image_url'];
     final ImagePicker picker = ImagePicker();
     bool isSaving = false;
-    bool showStatusOptions = false;
+    
 
     showDialog(
       context: context,
@@ -2101,132 +2100,49 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'สถานะ',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: isSaving
-                              ? null
-                              : () {
-                                  setDialogState(() {
-                                    showStatusOptions = !showStatusOptions;
-                                  });
-                                },
-                          icon: Icon(
-                            showStatusOptions
-                                ? Icons.keyboard_arrow_up
-                                : Icons.keyboard_arrow_down,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'สถานะ',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    if (!showStatusOptions)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: (selectedStatusMeta['color'] as Color)
-                              .withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: selectedStatusMeta['color'] as Color,
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              selectedStatusMeta['icon'] as IconData,
-                              size: 18,
-                              color: selectedStatusMeta['color'] as Color,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                selectedStatus,
-                                style: TextStyle(
-                                  color: selectedStatusMeta['color'] as Color,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              'แตะ ^ เพื่อเลือก',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: statusList.map((status) {
-                          final isSelected = selectedStatus == status['name'];
-                          return InkWell(
-                            onTap: isSaving
-                                ? null
-                                : () {
-                                    setDialogState(() {
-                                      selectedStatus = status['name'] as String;
-                                      showStatusOptions = false;
-                                    });
-                                  },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? (status['color'] as Color)
-                                        .withValues(alpha: 0.2)
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? status['color'] as Color
-                                      : Colors.grey.shade300,
-                                  width: isSelected ? 2 : 1,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    status['icon'] as IconData,
-                                    size: 18,
-                                    color: status['color'] as Color,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    status['name'] as String,
-                                    style: TextStyle(
-                                      color: status['color'] as Color,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
+                      decoration: BoxDecoration(
+                        color: (selectedStatusMeta['color'] as Color)
+                            .withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selectedStatusMeta['color'] as Color,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            selectedStatusMeta['icon'] as IconData,
+                            size: 18,
+                            color: selectedStatusMeta['color'] as Color,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              selectedStatus,
+                              style: TextStyle(
+                                color: selectedStatusMeta['color'] as Color,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     Text(
                       'รูปภาพ',
@@ -2425,7 +2341,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                           updatedData['name_asset'] = nameController.text;
                           updatedData['asset_name'] = nameController.text;
                           updatedData['type'] = selectedType;
-                          updatedData['status'] = selectedStatus;
                           updatedData['name_asset'] ??= '';
                           updatedData['location_id'] = widget.locationId;
 
@@ -2446,21 +2361,6 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                             updatedData['asset_image_url'] = currentImageUrl;
                           }
 
-                          int statusNum = 1;
-                          if (selectedStatus == 'ปกติ') {
-                            statusNum = 1;
-                          } else if (selectedStatus == 'ชำรุด') {
-                            statusNum = 2;
-                          } else if (selectedStatus == 'อยู่ระหว่างซ่อม') {
-                            statusNum = 3;
-                          } else if (selectedStatus == 'รอดำเนินการ') {
-                            statusNum = 3;
-                          } else if (selectedStatus == 'ซ่อมเสร็จ') {
-                            statusNum = 1;
-                          } else if (selectedStatus == 'ซ่อมไม่ได้') {
-                            statusNum = 4;
-                          }
-
                           final currentUid =
                               ApiService().currentUser?['uid']?.toString() ??
                                   'unknown_uid';
@@ -2474,22 +2374,10 @@ class _KrupanRoomScreenState extends State<KrupanRoomScreen> {
                             'asset_name': nameController.text,
                             'name_asset': nameController.text,
                             'asset_type': selectedType,
-                            'asset_status': statusNum,
                             'asset_image_url': updatedData['asset_image_url'],
-                            'auditor_name': currentName,
-                            'audited_at': FieldValue.serverTimestamp(),
                           };
 
                           try {
-                            if (statusNum == 1 || statusNum == 2) {
-                              await FirebaseService().createAuditLog({
-                                'asset_id': idController.text,
-                                'auditor_id': currentUid,
-                                'auditor_name': currentName,
-                                'audit_status': statusNum,
-                              });
-                            }
-
                             await FirebaseService().updateAsset(
                               equipment['asset_id'].toString(),
                               firestoreUpdate,

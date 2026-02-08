@@ -614,13 +614,25 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                           if (subtitle.trim().isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                subtitle,
-                                style: TextStyle(
-                                  color: Colors.grey.shade800,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.person,
+                                    size: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      subtitle,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade800,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           Padding(
@@ -649,13 +661,26 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                           if (note != null && note.trim().isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                note,
-                                style: TextStyle(
-                                  color: Colors.grey.shade900,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.description_outlined,
+                                    size: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      note,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade900,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                         ],
@@ -1099,6 +1124,111 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                   border: OutlineInputBorder(),
                                 ),
                               ),
+                              const SizedBox(height: 16),
+                              // ⭐ เพิ่มช่องรูปภาพหลังซ่อม
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.photo_camera,
+                                    size: 16,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'รูปภาพหลังซ่อม (ถ้ามี)',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () async {
+                                  final source = await showModalBottomSheet<ImageSource>(
+                                    context: context,
+                                    shape: const RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                                    ),
+                                    builder: (sheetContext) => SafeArea(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Padding(
+                                            padding: EdgeInsets.all(16),
+                                            child: Text(
+                                              'เลือกแหล่งที่มาของรูปภาพ',
+                                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          ListTile(
+                                            leading: const Icon(Icons.camera_alt),
+                                            title: const Text('ถ่ายรูป'),
+                                            onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                                          ),
+                                          ListTile(
+                                            leading: const Icon(Icons.photo_library),
+                                            title: const Text('เลือกจากแกลเลอรี่'),
+                                            onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+                                          ),
+                                          const SizedBox(height: 8),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                  if (source == null) return;
+                                  final ImagePicker picker = ImagePicker();
+                                  final XFile? img = await picker.pickImage(source: source);
+                                  if (img == null) return;
+                                  setDialogState(() {
+                                    evidenceImage = File(img.path);
+                                  });
+                                },
+                                child: Container(
+                                  height: 140,
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: evidenceImage == null
+                                        ? Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.add_a_photo,
+                                                size: 42,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'แตะเพื่อเพิ่มรูปภาพ',
+                                                style: TextStyle(
+                                                  color: Colors.grey.shade600,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        : ClipRRect(
+                                            borderRadius: BorderRadius.circular(14),
+                                            child: Image.file(
+                                              evidenceImage!,
+                                              fit: BoxFit.cover,
+                                              width: double.infinity,
+                                              height: double.infinity,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ),
                             ],
                             if (selected == 'cancelled') ...[
                               Row(
@@ -1260,6 +1390,18 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       final String workerFullname = workerInfo['worker_name'] ?? '';
 
       if (selected == 'completed') {
+        final assetId = reportData?['asset_id']?.toString();
+        
+        // ⭐ อัปโหลดรูปภาพหลังซ่อม (ถ้ามี)
+        String finishedImageUrl = '';
+        if (evidenceImage != null && assetId != null && assetId.trim().isNotEmpty) {
+          final uploaded = await FirebaseService().uploadRepairImage(
+            evidenceImage!,
+            assetId,
+          );
+          finishedImageUrl = uploaded ?? '';
+        }
+        
         final updateData = <String, dynamic>{
           'finished_at': FieldValue.serverTimestamp(),
           'worker_id': workerId,
@@ -1269,6 +1411,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         final note = completedNoteController.text.trim();
         if (note.isNotEmpty) {
           updateData['finished_remark'] = note;
+        }
+        
+        // ⭐ บันทึก URL รูปภาพ
+        if (finishedImageUrl.isNotEmpty) {
+          updateData['finished_image_url'] = finishedImageUrl;
         }
 
         updateData['remark_broken'] = FieldValue.delete();
@@ -1576,23 +1723,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                 child: const Text('ไม่สามารถโหลดรูปได้'),
                               );
                             },
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (isAdmin &&
-                        (status == 'pending' || status == 'repairing') &&
-                        !widget.readOnly) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: isUpdating ? null : _uploadImage,
-                          icon: const Icon(Icons.upload),
-                          label: Text(
-                            reportImageUrl.isEmpty
-                                ? 'เพิ่มรูปภาพ'
-                                : 'เปลี่ยนรูปภาพ',
                           ),
                         ),
                       ),

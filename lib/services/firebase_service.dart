@@ -1500,4 +1500,46 @@ class FirebaseService {
       debugPrint('ensureAdminAccountExists Error: $e');
     }
   }
+
+  /// Search asset by partial ID (for QR code flexibility)
+  Future<Map<String, dynamic>?> searchAssetByPartialId(String partialId) async {
+    try {
+      final trimmed = partialId.trim();
+      if (trimmed.isEmpty) return null;
+
+      // ค้นหาด้วย asset_id เต็ม
+      final exactMatch = await getAssetById(trimmed);
+      if (exactMatch != null) return exactMatch;
+
+      // ดึง assets ทั้งหมดและค้นหาแบบ contains
+      final snapshot = await _db.collection('assets').get();
+      
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final docAssetId = data['asset_id']?.toString() ?? '';
+        
+        // ตรวจสอบว่า asset_id ที่ scan มาตรงกับใน database หรือไม่
+        if (docAssetId == trimmed) {
+          return data;
+        }
+        
+        // ตรวจสอบว่า contains กัน (กรณี format ต่างกันเล็กน้อย)
+        if (docAssetId.contains(trimmed) || trimmed.contains(docAssetId)) {
+          debugPrint('🔍 พบ partial match: $docAssetId ≈ $trimmed');
+          return data;
+        }
+        
+        // ตรวจสอบ document ID
+        if (doc.id == trimmed || doc.id.contains(trimmed) || trimmed.contains(doc.id)) {
+          debugPrint('🔍 พบ doc ID match: ${doc.id} ≈ $trimmed');
+          return data;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('searchAssetByPartialId error: $e');
+      return null;
+    }
+  }
 }

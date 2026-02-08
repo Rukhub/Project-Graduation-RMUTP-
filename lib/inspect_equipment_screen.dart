@@ -472,7 +472,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
 
   bool get _isQuickConfirmStatus => selectedStatus == 'ปกติ';
 
-  bool get _shouldShowRemarkSection => selectedStatus != 'ปกติ';
+  bool get _shouldShowRemarkSection => true;  // ⭐ แสดงหมายเหตุและรูปภาพทุกสถานะ
 
   bool get _shouldShowImageSection => true;
 
@@ -1756,33 +1756,27 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
         ),
         const SizedBox(height: 20),
 
-        // หมายเหตุ - แสดงทุกสถานะยกเว้น ปกติ / อยู่ระหว่างซ่อม
-        if (_shouldShowRemarkSection) ...[
-          _buildFormCard(
-            icon: Icons.note_alt,
-            title: 'หมายเหตุ',
-            required: _requiresEvidence,
-            child: TextField(
-              controller: _remarkController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: _requiresEvidence
-                    ? 'ระบุเหตุผลที่ซ่อมไม่ได้...'
-                    : 'เช่น พบฝุ่นเยอะ, ปลั๊กหลวม (ถ้ามี)',
-                border: InputBorder.none,
-                filled: true,
-                fillColor: Colors.grey.shade50,
-              ),
+        // หมายเหตุ - แสดงทุกสถานะ
+        _buildFormCard(
+          icon: Icons.note_alt,
+          title: 'หมายเหตุ',
+          required: false,
+          child: TextField(
+            controller: _remarkController,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: 'เช่น ตรวจแล้วใช้งานได้ปกติ, พบฝุ่นเยอะ, ปลั๊กหลวม (ถ้ามี)',
+              border: InputBorder.none,
+              filled: true,
+              fillColor: Colors.grey.shade50,
             ),
           ),
-          const SizedBox(height: 20),
+        ),
+        const SizedBox(height: 20),
 
-          // รูปภาพ - แสดงเฉพาะ ชำรุด / ซ่อมไม่ได้
-          if (_shouldShowImageSection) ...[
-            _buildImageSection(),
-            const SizedBox(height: 30),
-          ],
-        ],
+        // รูปภาพ - แสดงทุกสถานะ
+        _buildImageSection(),
+        const SizedBox(height: 30),
 
         // ถ้าสถานะเป็น "ปกติ" ให้เว้นระยะก่อนปุ่มบันทึก
         if (selectedStatus == 'ปกติ') const SizedBox(height: 10),

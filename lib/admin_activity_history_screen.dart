@@ -751,10 +751,7 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
     // Subtitle now shows Room Name prominently if available, else Type/ID
     final subTitle = locationText != 'ไม่ระบุสถานที่'
         ? locationText
-        : (item['asset_type'] ?? 'ครุภัณฑ์');
-
-    // Bottom location text can now be used for Asset ID or other info since Room is moved up
-    final bottomInfoText = 'รหัส: $assetId';
+        : (item['asset_type'] ?? item['type'] ?? '');
 
     final date = _formatDate(item['date']);
 
@@ -937,14 +934,6 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                             color: cardBorderColor,
                           ),
                         ),
-                        const Spacer(),
-                        Text(
-                          date,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -1012,24 +1001,47 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                Text(
-                                  date.split(' ').first,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                ),
                               ],
                             ),
                             if (isReport) _buildTicketProcessPreview(item),
                             if (isReport) ...[
                               const SizedBox(height: 8),
+                              if (reporterName.isNotEmpty) ...[
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.person_outline,
+                                      size: 14,
+                                      color: const Color(0xFFEF4444),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        reporterName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: const Color.fromARGB(
+                                            255,
+                                            0,
+                                            0,
+                                            0,
+                                          ),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                              ],
                               Row(
                                 children: [
                                   Icon(
                                     Icons.report_problem_outlined,
                                     size: 14,
-                                    color: Colors.grey.shade500,
+                                    color: const Color(0xFFEF4444),
                                   ),
                                   const SizedBox(width: 6),
                                   Expanded(
@@ -1038,10 +1050,10 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                               reportedIssue.isEmpty ||
                                               reportedIssue == 'null')
                                           ? '-'
-                                          : reportedIssue,
+                                          : 'หมายเหตุ: $reportedIssue',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade700,
+                                        color: Colors.black87,
                                         fontWeight: FontWeight.w600,
                                       ),
                                       maxLines: 2,
@@ -1050,25 +1062,56 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                   ),
                                 ],
                               ),
+                              if (workerName.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.build_circle_outlined,
+                                      size: 14,
+                                      color: const Color(0xFFFF9800),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        workerName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: const Color.fromARGB(
+                                            255,
+                                            0,
+                                            0,
+                                            0,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                               if (isCancelled &&
                                   failedReason != null &&
                                   failedReason.isNotEmpty &&
                                   failedReason != 'null') ...[
                                 const SizedBox(height: 6),
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Icon(
-                                      Icons.block,
+                                      Icons.description_outlined,
                                       size: 14,
                                       color: Color(0xFF6B7280),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        failedReason,
-                                        style: TextStyle(
+                                        'หมายเหตุ: $failedReason',
+                                        style: const TextStyle(
                                           fontSize: 12,
-                                          color: Colors.grey.shade700,
+                                          color: Colors.black87,
                                           fontWeight: FontWeight.w600,
                                         ),
                                         maxLines: 2,
@@ -1084,47 +1127,23 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                   completedNote != 'null') ...[
                                 const SizedBox(height: 6),
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Icon(
-                                      Icons.note_alt_outlined,
+                                    const Icon(
+                                      Icons.description_outlined,
                                       size: 14,
-                                      color: Colors.green.shade700,
+                                      color: Color(0xFF22C55E),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        completedNote,
-                                        style: TextStyle(
+                                        'หมายเหตุ: $completedNote',
+                                        style: const TextStyle(
                                           fontSize: 12,
-                                          color: Colors.grey.shade700,
+                                          color: Colors.black87,
                                           fontWeight: FontWeight.w600,
                                         ),
                                         maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                              if (workerName.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.build_circle_outlined,
-                                      size: 14,
-                                      color: Colors.orange.shade700,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        workerName,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade700,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -1139,28 +1158,6 @@ class _AdminActivityHistoryScreenState extends State<AdminActivityHistoryScreen>
                                 fontSize: 12,
                                 color: Colors.blueGrey.shade300,
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.badge_outlined,
-                                  size: 12,
-                                  color: Colors.grey.shade400,
-                                ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    bottomInfoText,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade500,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
                             ),
                           ],
                         ),

@@ -605,10 +605,12 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
 
   ({Color color, IconData icon}) _statusUi(dynamic v) {
     final s = _statusText(v);
-    if (s == 'ปกติ')
+    if (s == 'ปกติ') {
       return (color: const Color(0xFF16A34A), icon: Icons.check_circle);
-    if (s == 'ชำรุด')
+    }
+    if (s == 'ชำรุด') {
       return (color: const Color(0xFFEF4444), icon: Icons.cancel);
+    }
     return (color: const Color(0xFF6B7280), icon: Icons.help);
   }
 
@@ -961,8 +963,9 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
                                             },
                                         loadingBuilder:
                                             (context, child, progress) {
-                                              if (progress == null)
+                                              if (progress == null) {
                                                 return child;
+                                              }
                                               return Container(
                                                 color: Colors.grey.shade100,
                                                 child: const Center(
@@ -1546,7 +1549,7 @@ class _InspectionHistoryScreenState extends State<InspectionHistoryScreen> {
                                 if (remark.trim().isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
-                                    remark,
+                                    'หมายเหตุ: $remark',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
