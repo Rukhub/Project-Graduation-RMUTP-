@@ -3744,7 +3744,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
     bool isRepairVerification = false;
 
-    String tempStatusText = equipmentStatus;
+    String tempStatusText = equipmentStatus == 'ปกติ' ? 'ชำรุด' : equipmentStatus;
 
 
 
@@ -3782,25 +3782,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
 
 
-            final bool isNormalSelected =
-
-                !isRepairVerification && tempStatusText == 'ปกติ';
-
-
-
             final Color headerPrimaryColor = isRepairVerification
 
                 ? primaryColor
 
-                : (isNormalSelected
-
-                    ? Colors.green.shade700
-
-                    : (isDamagedSelected
-
-                        ? Colors.red.shade700
-
-                        : primaryColor));
+                : (isDamagedSelected ? Colors.red.shade700 : primaryColor);
 
 
 
@@ -3808,15 +3794,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                 ? gradientStartColor
 
-                : (isNormalSelected
-
-                    ? Colors.green.shade400
-
-                    : (isDamagedSelected
-
-                        ? Colors.red.shade400
-
-                        : gradientStartColor));
+                : (isDamagedSelected ? Colors.red.shade400 : gradientStartColor);
 
 
 
@@ -4066,100 +4044,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
 
 
-                      // Option 1: Normal (Always Available)
-
-                      GestureDetector(
-
-                        onTap: () => setDialogState(() => tempStatusText = 'ปกติ'),
-
-                        child: AnimatedContainer(
-
-                          duration: const Duration(milliseconds: 200),
-
-                          padding: const EdgeInsets.all(16),
-
-                          decoration: BoxDecoration(
-
-                            color: tempStatusText == 'ปกติ' ? Colors.green.shade50 : Colors.grey.shade50,
-
-                            borderRadius: BorderRadius.circular(16),
-
-                            border: Border.all(
-
-                              color: tempStatusText == 'ปกติ' ? Colors.green.shade400 : Colors.grey.shade300,
-
-                              width: tempStatusText == 'ปกติ' ? 2 : 1,
-
-                            ),
-
-                          ),
-
-                          child: Row(
-
-                            children: [
-
-                              Container(
-
-                                padding: const EdgeInsets.all(10),
-
-                                decoration: BoxDecoration(
-
-                                  color: tempStatusText == 'ปกติ' ? Colors.green.shade100 : Colors.grey.shade200,
-
-                                  borderRadius: BorderRadius.circular(12),
-
-                                ),
-
-                                child: Icon(
-
-                                  Icons.check_circle_rounded,
-
-                                  color: tempStatusText == 'ปกติ' ? Colors.green.shade700 : Colors.grey.shade600,
-
-                                  size: 28,
-
-                                ),
-
-                              ),
-
-                              const SizedBox(width: 12),
-
-                              const Expanded(
-
-                                child: Column(
-
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-
-                                  children: [
-
-                                    Text('ใช้งานได้ปกติ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-
-                                    Text('สภาพสมบูรณ์ พร้อมใช้งาน', style: TextStyle(color: Colors.grey, fontSize: 12)),
-
-                                  ],
-
-                                ),
-
-                              ),
-
-                              Icon(
-
-                                tempStatusText == 'ปกติ' ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
-
-                                color: tempStatusText == 'ปกติ' ? Colors.green.shade700 : Colors.grey.shade400,
-
-                              ),
-
-                            ],
-
-                          ),
-
-                        ),
-
-                      ),
-
-
-
                       // Option 2: Damaged (Only shown for Regular Audit)
 
                       if (!isRepairVerification) ...[
@@ -4282,7 +4166,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                   ? Colors.red.shade700
 
-                                  : Colors.green.shade700,
+                                  : primaryColor,
 
                               size: 20,
 
@@ -4304,7 +4188,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                     ? Colors.red
 
-                                    : Colors.green.shade700,
+                                    : primaryColor,
 
                               ),
 
@@ -4496,11 +4380,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                 ? Colors.red.shade700
 
-                                : (isNormalSelected
-
-                                    ? Colors.green.shade700
-
-                                    : primaryColor),
+                                : primaryColor,
 
                             size: 20,
 
@@ -4522,11 +4402,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                   ? Colors.red.shade700
 
-                                  : (isNormalSelected
-
-                                      ? Colors.green.shade700
-
-                                      : null),
+                                  : null,
 
                             ),
 
@@ -4578,11 +4454,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                   ? Colors.red.shade200
 
-                                  : (isNormalSelected
-
-                                      ? Colors.green.shade200
-
-                                      : Colors.grey.shade200),
+                                  : Colors.grey.shade200,
 
                             ),
 
@@ -4598,11 +4470,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                                   ? Colors.red.shade700
 
-                                  : (isNormalSelected
-
-                                      ? Colors.green.shade700
-
-                                      : primaryColor),
+                                  : primaryColor,
 
                               width: 2,
 
@@ -4685,10 +4553,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                       backgroundColor: tempStatusText.contains('ชำรุด')
 
                           ? Colors.red.shade600
-
-                          : tempStatusText == 'ปกติ'
-
-                          ? Colors.green.shade600
 
                           : primaryColor,
 
@@ -8244,11 +8108,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
     // กำหนด Text และ Icon ปุ่มตามสถานะ
 
-    String actionLabel = 'ตรวจสอบครุภัณฑ์';
+    String actionLabel = 'แจ้งปัญหา';
 
-    IconData actionIcon = Icons.playlist_add_check;
+    IconData actionIcon = Icons.report_problem;
 
-    Color actionBtnColor = const Color(0xFF5593E4); // ปกติ = สีฟ้า
+    Color actionBtnColor = Colors.red.shade600;
 
 
 

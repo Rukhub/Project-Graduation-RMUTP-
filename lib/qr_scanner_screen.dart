@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'services/firebase_service.dart';
 import 'equipment_detail_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -290,71 +291,30 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
       debugPrint('📷 เลือกรูป: ${image.path}');
 
-      // MobileScanner 3.x might behave differently for analyzeImage.
-      // Assuming analyzeImage is available on controller in 3.5.0
-      // If not, we might need a workaround or check documentation.
-      // According to 3.5.7, analyzeImage exists on MobileScannerController.
-
-      final tempController = mobile.MobileScannerController(
-        formats: const [mobile.BarcodeFormat.qrCode],
-        autoStart: false,
-      );
-
+      final scanner = BarcodeScanner(formats: [BarcodeFormat.qrCode]);
       try {
-        // v3.x analyzeImage returns bool (true if detected), but doesn't return the data directly?
-        // Wait, v3.x analyzeImage returns Future<bool> and triggers onDetect callback?
-        // Or actually, 3.5.0 added analyzeImage returning BarcodeCapture?
-        // Let's check 3.5.7 source code effectively: it returns Future<bool>.
-        // This is tricky. In 3.x, analyzing image from file was often handled differently.
-        // Actually, many users use `google_mlkit_barcode_scanning` separately for gallery.
-        // BUT, since we removed that, we rely on mobile_scanner.
+        final inputImage = InputImage.fromFilePath(image.path);
+        final barcodes = await scanner.processImage(inputImage);
 
-        // Let's assume standard behavior: if 3.x analyzeImage triggers onDetect, we can set up a temp listener?
-        // It's safer to rely on the fact that older mobile_scanner had analyzeImage but it was often buggy/limited.
-        // BUT, given the user's request, let's try to use it.
+        String? qrData;
+        for (final b in barcodes) {
+          final v = b.rawValue;
+          if (v != null && v.trim().isNotEmpty) {
+            qrData = v;
+            break;
+          }
+        }
 
-        // v3.5.0 analyzeImage returns Future<bool> indicating if analysis was successfully started
-        final bool started = await tempController.analyzeImage(image.path);
-
-        if (!started) {
-          _showErrorDialog('ไม่สามารถอ่าน QR Code ในรูปได้');
+        if (qrData == null) {
+          _showErrorDialog('ไม่พบ QR Code ในรูปภาพ');
           setState(() => isProcessing = false);
           return;
         }
 
-        // Wait for event on barcodes stream
-        bool found = false;
-        // Listen to the stream for a short period
-        final subscription = tempController.barcodes.listen((capture) {
-          if (capture.barcodes.isNotEmpty) {
-            final qrData = capture.barcodes.first.rawValue;
-            if (qrData != null) {
-              // Stop listening once found
-              if (!found) {
-                found = true;
-                _onQRCodeDetected(qrData);
-              }
-            }
-          }
-        });
-
-        // Loop to wait for result or timeout
-        int retries = 0;
-        while (!found && retries < 10) {
-          await Future.delayed(const Duration(milliseconds: 200));
-          // No need to check stream manually, listener handles it
-          retries++;
-        }
-
-        await subscription.cancel();
-
-        if (!found) {
-          // Standard 3.x might not have picked it up
-          _showErrorDialog('ไม่พบ QR Code ในรูปภาพ');
-          setState(() => isProcessing = false);
-        }
+        debugPrint('🖼️ สแกนจากรูป: $qrData');
+        await _onQRCodeDetected(qrData);
       } finally {
-        tempController.dispose();
+        await scanner.close();
       }
     } catch (e) {
       debugPrint('🚨 Error picking image: $e');
