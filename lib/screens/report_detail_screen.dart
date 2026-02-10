@@ -1148,40 +1148,60 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                               InkWell(
                                 borderRadius: BorderRadius.circular(14),
                                 onTap: () async {
-                                  final source = await showModalBottomSheet<ImageSource>(
-                                    context: context,
-                                    shape: const RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                                    ),
-                                    builder: (sheetContext) => SafeArea(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Padding(
-                                            padding: EdgeInsets.all(16),
-                                            child: Text(
-                                              'เลือกแหล่งที่มาของรูปภาพ',
-                                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                            ),
+                                  final source =
+                                      await showModalBottomSheet<ImageSource>(
+                                        context: context,
+                                        shape: const RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(20),
                                           ),
-                                          ListTile(
-                                            leading: const Icon(Icons.camera_alt),
-                                            title: const Text('ถ่ายรูป'),
-                                            onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                                        ),
+                                        builder: (sheetContext) => SafeArea(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Padding(
+                                                padding: EdgeInsets.all(16),
+                                                child: Text(
+                                                  'เลือกแหล่งที่มาของรูปภาพ',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              ListTile(
+                                                leading: const Icon(
+                                                  Icons.camera_alt,
+                                                ),
+                                                title: const Text('ถ่ายรูป'),
+                                                onTap: () => Navigator.pop(
+                                                  sheetContext,
+                                                  ImageSource.camera,
+                                                ),
+                                              ),
+                                              ListTile(
+                                                leading: const Icon(
+                                                  Icons.photo_library,
+                                                ),
+                                                title: const Text(
+                                                  'เลือกจากแกลเลอรี่',
+                                                ),
+                                                onTap: () => Navigator.pop(
+                                                  sheetContext,
+                                                  ImageSource.gallery,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                            ],
                                           ),
-                                          ListTile(
-                                            leading: const Icon(Icons.photo_library),
-                                            title: const Text('เลือกจากแกลเลอรี่'),
-                                            onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
-                                          ),
-                                          const SizedBox(height: 8),
-                                        ],
-                                      ),
-                                    ),
-                                  );
+                                        ),
+                                      );
                                   if (source == null) return;
                                   final ImagePicker picker = ImagePicker();
-                                  final XFile? img = await picker.pickImage(source: source);
+                                  final XFile? img = await picker.pickImage(
+                                    source: source,
+                                  );
                                   if (img == null) return;
                                   setDialogState(() {
                                     evidenceImage = File(img.path);
@@ -1200,7 +1220,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                   child: Center(
                                     child: evidenceImage == null
                                         ? Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
                                             children: [
                                               Icon(
                                                 Icons.add_a_photo,
@@ -1218,7 +1239,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                             ],
                                           )
                                         : ClipRRect(
-                                            borderRadius: BorderRadius.circular(14),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
                                             child: Image.file(
                                               evidenceImage!,
                                               fit: BoxFit.cover,
@@ -1391,17 +1414,19 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
       if (selected == 'completed') {
         final assetId = reportData?['asset_id']?.toString();
-        
+
         // ⭐ อัปโหลดรูปภาพหลังซ่อม (ถ้ามี)
         String finishedImageUrl = '';
-        if (evidenceImage != null && assetId != null && assetId.trim().isNotEmpty) {
+        if (evidenceImage != null &&
+            assetId != null &&
+            assetId.trim().isNotEmpty) {
           final uploaded = await FirebaseService().uploadRepairImage(
             evidenceImage!,
             assetId,
           );
           finishedImageUrl = uploaded ?? '';
         }
-        
+
         final updateData = <String, dynamic>{
           'finished_at': FieldValue.serverTimestamp(),
           'worker_id': workerId,
@@ -1412,7 +1437,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         if (note.isNotEmpty) {
           updateData['finished_remark'] = note;
         }
-        
+
         // ⭐ บันทึก URL รูปภาพ
         if (finishedImageUrl.isNotEmpty) {
           updateData['finished_image_url'] = finishedImageUrl;

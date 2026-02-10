@@ -472,7 +472,7 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
 
   bool get _isQuickConfirmStatus => selectedStatus == 'ปกติ';
 
-  bool get _shouldShowRemarkSection => true;  // ⭐ แสดงหมายเหตุและรูปภาพทุกสถานะ
+  bool get _shouldShowRemarkSection => true; // ⭐ แสดงหมายเหตุและรูปภาพทุกสถานะ
 
   bool get _shouldShowImageSection => true;
 
@@ -1765,7 +1765,8 @@ class _InspectEquipmentScreenState extends State<InspectEquipmentScreen> {
             controller: _remarkController,
             maxLines: 3,
             decoration: InputDecoration(
-              hintText: 'เช่น ตรวจแล้วใช้งานได้ปกติ, พบฝุ่นเยอะ, ปลั๊กหลวม (ถ้ามี)',
+              hintText:
+                  'เช่น ตรวจแล้วใช้งานได้ปกติ, พบฝุ่นเยอะ, ปลั๊กหลวม (ถ้ามี)',
               border: InputBorder.none,
               filled: true,
               fillColor: Colors.grey.shade50,

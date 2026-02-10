@@ -899,7 +899,7 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
     final double listHeight = filteredAssets.isEmpty
         ? 0
         : ((filteredAssets.length * 52.0) + ((filteredAssets.length - 1) * 1.0))
-            .clamp(52.0, 240.0);
+              .clamp(52.0, 240.0);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1130,10 +1130,10 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                             Divider(height: 1, color: Colors.grey.shade200),
                         itemBuilder: (context, index) {
                           final eq = filteredAssets[index];
-                          final assetId =
-                              (eq['asset_id'] ?? eq['id']).toString();
-                          final assetType =
-                              (eq['asset_type'] ?? eq['type']).toString();
+                          final assetId = (eq['asset_id'] ?? eq['id'])
+                              .toString();
+                          final assetType = (eq['asset_type'] ?? eq['type'])
+                              .toString();
                           final isSelected = selectedEquipmentId == assetId;
                           return ListTile(
                             dense: true,
@@ -1152,8 +1152,9 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                             title: Text(
                               assetId,
                               style: TextStyle(
-                                fontWeight:
-                                    isSelected ? FontWeight.bold : FontWeight.w700,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w700,
                               ),
                             ),
                             subtitle: Text(

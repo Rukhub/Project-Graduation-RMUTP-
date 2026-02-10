@@ -110,7 +110,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
     try {
       String assetId = qrData.trim();
-      
+
       // รองรับหลาย format
       if (qrData.contains('EQUIP:')) {
         assetId = qrData.split('EQUIP:')[1].trim();
@@ -122,7 +122,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
       // ค้นหาแบบปกติ
       var equipment = await FirebaseService().getAssetById(assetId);
-      
+
       // ถ้าไม่เจอ ลอง trim ส่วนหลังหรือค้นหาแบบอื่น
       if (equipment == null && assetId.contains('-')) {
         // ลองค้นหาด้วยส่วนแรกของ ID (กรณี ID ยาวมาก)
@@ -225,10 +225,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                 children: [
                   Text(
                     'Asset ID:',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 4),
                   SelectableText(
@@ -245,10 +242,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
             const SizedBox(height: 8),
             Text(
               'กรุณาตรวจสอบว่าครุภัณฑ์นี้มีอยู่ในระบบ',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
           ],
         ),

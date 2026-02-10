@@ -1,0 +1,17 @@
+{
+  "name": "firestore-import-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "CSV import helpers for Firestore (assets collection)",
+  "main": "import_assets_csv.js",
+  "scripts": {
+    "import:assets": "node import_assets_csv.js"
+  },
+  "dependencies": {
+    "csv-parse": "^5.6.0",
+    "firebase-admin": "^12.7.0",
+    "@google-cloud/firestore": "^7.11.0",
+    "xlsx": "^0.18.5"
+  }
+}

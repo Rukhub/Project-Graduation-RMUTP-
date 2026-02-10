@@ -13,6 +13,324 @@ class FirebaseService {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  Stream<List<Map<String, dynamic>>> getPermanentAssetsStream({
+    bool activeOnly = true,
+  }) {
+    Query<Map<String, dynamic>> q = _db.collection('assets_permanent');
+    return q.snapshots().map((snapshot) {
+      final items = snapshot.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        data['permanent_id'] ??= d.id;
+        return data;
+      }).toList();
+      items.sort((a, b) {
+        final ap = a['permanent_id']?.toString() ?? '';
+        final bp = b['permanent_id']?.toString() ?? '';
+        return ap.compareTo(bp);
+      });
+      return items;
+    });
+  }
+
+  Future<int> getPermanentStatus(String permanentId) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return 2;
+      final doc = await _db.collection('assets_permanent').doc(id).get();
+      if (!doc.exists) return 2;
+      final data = doc.data() ?? {};
+      final rawStatus = data['permanent_status'];
+      final status = rawStatus is int
+          ? rawStatus
+          : int.tryParse(rawStatus?.toString() ?? '') ?? 2;
+      return status;
+    } catch (e) {
+      debugPrint('getPermanentStatus error: $e');
+      return 2;
+    }
+  }
+
+  String _assetIdRootForSuffix(String assetId) {
+    final trimmed = assetId.toString().trim();
+    final m = RegExp(r'^(.*)_(\d+)$').firstMatch(trimmed);
+    if (m == null) return trimmed;
+    return m.group(1) ?? trimmed;
+  }
+
+  int? _assetIdSuffixNumber(String assetId, String root) {
+    final trimmed = assetId.toString().trim();
+    if (trimmed == root) return 1;
+    if (!trimmed.startsWith('${root}_')) return null;
+    final suffix = trimmed.substring(root.length + 1);
+    return int.tryParse(suffix);
+  }
+
+  Future<String?> generateNextAvailableAssetId(String requestedAssetId) async {
+    try {
+      final root = _assetIdRootForSuffix(requestedAssetId);
+      if (root.trim().isEmpty) return null;
+
+      // If the requested root itself is available, prefer it.
+      final rootAvailable = await isAssetIdAvailable(root);
+      if (rootAvailable) return root;
+
+      // Query existing asset_ids with prefix root (root or root-<n>).
+      final start = root;
+      final end = '$root\uf8ff';
+      final snapshot = await _db
+          .collection('assets')
+          .where('asset_id', isGreaterThanOrEqualTo: start)
+          .where('asset_id', isLessThan: end)
+          .limit(200)
+          .get();
+
+      int maxSuffix = 1; // root exists => first duplicate should become _2
+      for (final d in snapshot.docs) {
+        final id = d.data()['asset_id']?.toString() ?? d.id;
+        final n = _assetIdSuffixNumber(id, root);
+        if (n != null && n > maxSuffix) {
+          maxSuffix = n;
+        }
+      }
+
+      // Next id = root_(max+1)
+      final candidate = '${root}_${maxSuffix + 1}';
+      final candidateAvailable = await isAssetIdAvailable(candidate);
+      if (candidateAvailable) return candidate;
+
+      // Fallback linear probe (rare)
+      for (int i = maxSuffix + 2; i < maxSuffix + 50; i++) {
+        final c = '${root}_$i';
+        final ok = await isAssetIdAvailable(c);
+        if (ok) return c;
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('generateNextAvailableAssetId error: $e');
+      return null;
+    }
+  }
+
+  Future<String?> validatePermanentIdForNewAsset(String permanentId) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return 'กรุณาเลือกกลุ่มสินทรัพย์ถาวร';
+
+      final doc = await _db.collection('assets_permanent').doc(id).get();
+      if (!doc.exists) return 'ไม่พบกลุ่มสินทรัพย์ถาวรนี้ในระบบ';
+
+      final data = doc.data() ?? {};
+      final rawStatus = data['permanent_status'];
+      final status = rawStatus is int
+          ? rawStatus
+          : int.tryParse(rawStatus?.toString() ?? '') ?? 2;
+
+      if (status == 1) {
+        QuerySnapshot<Map<String, dynamic>> used = await _db
+            .collection('assets')
+            .where('permanent_id', isEqualTo: id)
+            .limit(1)
+            .get();
+
+        // Fallback for old/mistyped field in existing data
+        if (used.docs.isEmpty) {
+          used = await _db
+              .collection('assets')
+              .where('permenant_id', isEqualTo: id)
+              .limit(1)
+              .get();
+        }
+
+        if (used.docs.isNotEmpty) {
+          final usedData = used.docs.first.data();
+          final usedAssetId = (usedData['asset_id'] ?? used.docs.first.id)
+              ?.toString();
+          final usedName = (usedData['asset_name'] ?? usedData['name_asset'])
+              ?.toString();
+
+          final idText = (usedAssetId != null && usedAssetId.trim().isNotEmpty)
+              ? usedAssetId.trim()
+              : null;
+          final nameText = (usedName != null && usedName.trim().isNotEmpty)
+              ? usedName.trim()
+              : null;
+
+          if (idText != null && nameText != null) {
+            return 'กลุ่มสินทรัพย์ถาวรนี้ห้ามซ้ำ (ครุภัณฑ์: $idText / ชื่อ: $nameText)';
+          }
+          if (idText != null) {
+            return 'กลุ่มสินทรัพย์ถาวรนี้ห้ามซ้ำ (ซ้ำกับครุภัณฑ์: $idText)';
+          }
+          if (nameText != null) {
+            return 'กลุ่มสินทรัพย์ถาวรนี้ห้ามซ้ำ (ซ้ำกับ: $nameText)';
+          }
+          return 'กลุ่มสินทรัพย์ถาวรนี้ห้ามซ้ำ';
+        }
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('validatePermanentIdForNewAsset error: $e');
+      return 'ตรวจสอบกลุ่มสินทรัพย์ถาวรไม่สำเร็จ';
+    }
+  }
+
+  Future<Map<String, dynamic>?> getPermanentAssetById(
+    String permanentId,
+  ) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return null;
+      final doc = await _db.collection('assets_permanent').doc(id).get();
+      if (!doc.exists) return null;
+      final data = Map<String, dynamic>.from(doc.data() ?? {});
+      data['id'] = doc.id;
+      data['permanent_id'] ??= doc.id;
+      return data;
+    } catch (e) {
+      debugPrint('getPermanentAssetById error: $e');
+      return null;
+    }
+  }
+
+  Future<bool> addPermanentAssetGroup({
+    required String permanentId,
+    required int permanentStatus,
+  }) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return false;
+
+      final ref = _db.collection('assets_permanent').doc(id);
+      final existing = await ref.get();
+      if (existing.exists) return false;
+
+      await ref.set({
+        'permanent_id': id,
+        'permanent_status': permanentStatus,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      debugPrint('addPermanentAssetGroup error: $e');
+      return false;
+    }
+  }
+
+  Future<int> purgeIsActiveFieldFromPermanentAssets() async {
+    try {
+      int updated = 0;
+
+      DocumentSnapshot<Map<String, dynamic>>? lastDoc;
+      while (true) {
+        Query<Map<String, dynamic>> q = _db
+            .collection('assets_permanent')
+            .orderBy(FieldPath.documentId)
+            .limit(500);
+        if (lastDoc != null) {
+          q = q.startAfterDocument(lastDoc!);
+        }
+
+        final snapshot = await q.get();
+        if (snapshot.docs.isEmpty) break;
+
+        int updatedInBatch = 0;
+        final batch = _db.batch();
+        for (final d in snapshot.docs) {
+          final data = d.data();
+          if (data.containsKey('is_active')) {
+            batch.update(d.reference, {'is_active': FieldValue.delete()});
+            updatedInBatch += 1;
+          }
+        }
+
+        if (updatedInBatch > 0) {
+          await batch.commit();
+          updated += updatedInBatch;
+        }
+
+        lastDoc = snapshot.docs.last;
+
+        if (snapshot.docs.length < 500) break;
+      }
+
+      return updated;
+    } catch (e) {
+      debugPrint('purgeIsActiveFieldFromPermanentAssets error: $e');
+      return 0;
+    }
+  }
+
+  Future<int> countAssetsByPermanentId(String permanentId) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return 0;
+      final snapshot = await _db
+          .collection('assets')
+          .where('permanent_id', isEqualTo: id)
+          .get();
+      return snapshot.docs.length;
+    } catch (e) {
+      debugPrint('countAssetsByPermanentId error: $e');
+      return 0;
+    }
+  }
+
+  Future<bool> canSetPermanentStatusUnique(String permanentId) async {
+    final count = await countAssetsByPermanentId(permanentId);
+    return count <= 1;
+  }
+
+  Future<bool> deletePermanentAssetGroup(String permanentId) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return false;
+
+      final ref = _db.collection('assets_permanent').doc(id);
+      final doc = await ref.get();
+      if (!doc.exists) return false;
+
+      final assetCount = await countAssetsByPermanentId(id);
+      if (assetCount > 0) {
+        return false;
+      }
+
+      await ref.delete();
+      return true;
+    } catch (e) {
+      debugPrint('deletePermanentAssetGroup error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updatePermanentAssetGroup(
+    String permanentId,
+    Map<String, dynamic> fields,
+  ) async {
+    try {
+      final id = permanentId.toString().trim();
+      if (id.isEmpty) return false;
+
+      // Safety: If trying to set unique(1), ensure at most 1 asset is linked.
+      if (fields.containsKey('permanent_status')) {
+        final raw = fields['permanent_status'];
+        final status = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+        if (status == 1) {
+          final ok = await canSetPermanentStatusUnique(id);
+          if (!ok) return false;
+        }
+      }
+
+      await _db.collection('assets_permanent').doc(id).update(fields);
+      return true;
+    } catch (e) {
+      debugPrint('updatePermanentAssetGroup error: $e');
+      return false;
+    }
+  }
+
   static int reportStatusToCode(dynamic value) {
     if (value == null) return 1;
     if (value is int) return value;
@@ -158,6 +476,7 @@ class FirebaseService {
     'reports_history',
     'audits_history',
     'check_logs',
+    'assets',
   };
 
   Future<int> deleteDocsFromCollection({
@@ -893,6 +1212,42 @@ class FirebaseService {
     }
   }
 
+  /// Sanitize asset_id for use as Firestore document ID
+  /// Firestore doc IDs cannot contain "/" — replace with "_"
+  String _sanitizeDocId(String id) => id.replaceAll('/', '_');
+
+  Future<bool> isAssetIdAvailable(
+    String assetId, {
+    String? excludeDocId,
+  }) async {
+    try {
+      final trimmed = assetId.toString().trim();
+      if (trimmed.isEmpty) return false;
+
+      final exclude = excludeDocId?.toString().trim();
+      final safeDocId = _sanitizeDocId(trimmed);
+
+      final doc = await _db.collection('assets').doc(safeDocId).get();
+      if (doc.exists && doc.id != exclude) return false;
+
+      final snapshot = await _db
+          .collection('assets')
+          .where('asset_id', isEqualTo: trimmed)
+          .limit(5)
+          .get();
+
+      for (final d in snapshot.docs) {
+        if (exclude != null && d.id == exclude) continue;
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('isAssetIdAvailable error: $e');
+      return false;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getCheckLogs(String assetId) async {
     try {
       // Remove orderBy to avoid "Failed Precondition: The query requires an index" error
@@ -1280,6 +1635,7 @@ class FirebaseService {
     required String assetId,
     required String assetName,
     required String assetType,
+    required String permanentId,
     required dynamic price,
     required dynamic locationId,
     String? createdId,
@@ -1288,9 +1644,39 @@ class FirebaseService {
     File? imageFile,
   }) async {
     try {
+      final trimmedAssetId = assetId.toString().trim();
+      if (trimmedAssetId.isEmpty) return false;
+
+      final trimmedPermanentId = permanentId.toString().trim();
+      if (trimmedPermanentId.isEmpty) return false;
+
+      final available = await isAssetIdAvailable(trimmedAssetId);
+      if (!available) {
+        debugPrint('addAsset blocked: duplicate asset_id=$trimmedAssetId');
+        return false;
+      }
+
+      final pDoc = await _db
+          .collection('assets_permanent')
+          .doc(trimmedPermanentId)
+          .get();
+      if (!pDoc.exists) {
+        debugPrint(
+          'addAsset blocked: permanent_id not found=$trimmedPermanentId',
+        );
+        return false;
+      }
+      final permanentValidation = await validatePermanentIdForNewAsset(
+        trimmedPermanentId,
+      );
+      if (permanentValidation != null) {
+        debugPrint('addAsset blocked: $permanentValidation');
+        return false;
+      }
+
       String? imageUrl;
       if (imageFile != null) {
-        imageUrl = await uploadAssetImage(imageFile, assetId);
+        imageUrl = await uploadAssetImage(imageFile, trimmedAssetId);
       }
 
       String? roomName;
@@ -1311,10 +1697,11 @@ class FirebaseService {
         debugPrint('Error reading location room_name: $e');
       }
 
-      await _db.collection('assets').doc(assetId).set({
-        'asset_id': assetId,
+      final data = <String, dynamic>{
+        'asset_id': trimmedAssetId,
         'asset_name': assetName,
         'asset_type': assetType,
+        'permanent_id': trimmedPermanentId,
         'price': price,
         'location_id': locationId,
         if (roomName != null) 'location_name': roomName,
@@ -1324,6 +1711,23 @@ class FirebaseService {
         if (createdBy != null) 'created_name': createdBy,
         if (purchaseAt != null) 'purchase_at': Timestamp.fromDate(purchaseAt),
         'created_at': FieldValue.serverTimestamp(),
+      };
+
+      final safeDocId = _sanitizeDocId(trimmedAssetId);
+      await _db.runTransaction((tx) async {
+        final ref = _db.collection('assets').doc(safeDocId);
+        final existing = await tx.get(ref);
+        if (existing.exists) {
+          throw StateError('duplicate-asset-id');
+        }
+
+        final pRef = _db.collection('assets_permanent').doc(trimmedPermanentId);
+        final pDocTx = await tx.get(pRef);
+        if (!pDocTx.exists) {
+          throw StateError('permanent-not-found');
+        }
+
+        tx.set(ref, data);
       });
 
       return true;
@@ -1333,7 +1737,208 @@ class FirebaseService {
     }
   }
 
-  // --- Dashboard Stats ---
+  // --- Bulk Import Assets from CSV ---
+
+  /// Result class for each row in bulk import
+  /// [success] = true means the asset was added successfully
+  /// [error] = error message if failed
+  /// [assetId] = the asset_id from the row
+
+  /// Add multiple assets at once from parsed CSV data.
+  /// Each row is a Map with keys: asset_id, asset_name, asset_type,
+  /// permanent_id, price, location_id, purchase_date
+  /// Returns a list of result maps: {row, asset_id, success, error}
+  Future<List<Map<String, dynamic>>> addAssetBulk({
+    required List<Map<String, String>> rows,
+    String? createdId,
+    String? createdBy,
+    void Function(int current, int total)? onProgress,
+  }) async {
+    final results = <Map<String, dynamic>>[];
+
+    // Pre-fetch all permanent assets for validation
+    final permanentSnapshot = await _db.collection('assets_permanent').get();
+    final validPermanentIds = <String>{};
+    for (final doc in permanentSnapshot.docs) {
+      validPermanentIds.add(doc.id);
+    }
+
+    // Pre-fetch location room names
+    final locationSnapshot = await _db.collection('locations').get();
+    final locationRoomNames = <String, String>{};
+    for (final doc in locationSnapshot.docs) {
+      final rn = doc.data()['room_name']?.toString() ?? '';
+      if (rn.trim().isNotEmpty) {
+        locationRoomNames[doc.id] = rn.trim();
+      }
+    }
+
+    // Collect all asset IDs from the CSV to check duplicates within the file
+    final csvAssetIds = <String>{};
+
+    // Process each row
+    final batchDocs = <Map<String, dynamic>>[];
+
+    for (int i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      final assetId = (row['asset_id'] ?? '').trim();
+      final assetName = (row['asset_name'] ?? '').trim();
+      final assetType = (row['asset_type'] ?? '').trim();
+      final permanentId = (row['permanent_id'] ?? '').trim();
+      final priceStr = (row['price'] ?? '').trim();
+      final locationId = (row['location_id'] ?? '').trim();
+      final purchaseDateStr = (row['purchase_date'] ?? '').trim();
+
+      // Validate required fields
+      if (assetId.isEmpty) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'รหัสครุภัณฑ์ว่าง',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+      if (assetName.isEmpty) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'ชื่อครุภัณฑ์ว่าง',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+      if (permanentId.isEmpty) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'กลุ่มสินทรัพย์ถาวรว่าง',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+
+      // Check duplicate within CSV file
+      if (csvAssetIds.contains(assetId)) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'รหัสซ้ำในไฟล์ CSV',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+      csvAssetIds.add(assetId);
+
+      // Check permanent_id exists
+      if (!validPermanentIds.contains(permanentId)) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'กลุ่มสินทรัพย์ถาวร "$permanentId" ไม่พบในระบบ',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+
+      // Check if asset_id already exists in Firestore
+      final available = await isAssetIdAvailable(assetId);
+      if (!available) {
+        results.add({
+          'row': i + 1,
+          'asset_id': assetId,
+          'success': false,
+          'error': 'รหัสครุภัณฑ์นี้มีอยู่แล้วในระบบ',
+        });
+        onProgress?.call(i + 1, rows.length);
+        continue;
+      }
+
+      // Parse price
+      double? price;
+      if (priceStr.isNotEmpty) {
+        final cleaned = priceStr.replaceAll(',', '').replaceAll(' ', '');
+        price = double.tryParse(cleaned);
+      }
+
+      // Parse purchase date
+      DateTime? purchaseDate;
+      if (purchaseDateStr.isNotEmpty) {
+        purchaseDate = DateTime.tryParse(purchaseDateStr);
+      }
+
+      // Resolve location room name
+      final roomName = locationRoomNames[locationId];
+
+      final data = <String, dynamic>{
+        'asset_id': assetId,
+        'asset_name': assetName,
+        'asset_type': assetType,
+        'permanent_id': permanentId,
+        'price': price,
+        'location_id': locationId.isNotEmpty ? locationId : null,
+        if (roomName != null) 'location_name': roomName,
+        'asset_status': 1,
+        'asset_image_url': null,
+        if (createdId != null) 'created_id': createdId,
+        if (createdBy != null) 'created_name': createdBy,
+        if (purchaseDate != null)
+          'purchase_at': Timestamp.fromDate(purchaseDate),
+        'created_at': FieldValue.serverTimestamp(),
+      };
+
+      batchDocs.add({'assetId': assetId, 'row': i + 1, 'data': data});
+
+      onProgress?.call(i + 1, rows.length);
+    }
+
+    // Write valid docs in batches of 400 (Firestore limit is 500)
+    for (int start = 0; start < batchDocs.length; start += 400) {
+      final end = (start + 400 > batchDocs.length)
+          ? batchDocs.length
+          : start + 400;
+      final chunk = batchDocs.sublist(start, end);
+
+      final batch = _db.batch();
+      for (final item in chunk) {
+        final safeId = _sanitizeDocId(item['assetId'] as String);
+        final ref = _db.collection('assets').doc(safeId);
+        batch.set(ref, item['data'] as Map<String, dynamic>);
+      }
+
+      try {
+        await batch.commit();
+        for (final item in chunk) {
+          results.add({
+            'row': item['row'],
+            'asset_id': item['assetId'],
+            'success': true,
+            'error': null,
+          });
+        }
+      } catch (e) {
+        debugPrint('Bulk import batch error: $e');
+        for (final item in chunk) {
+          results.add({
+            'row': item['row'],
+            'asset_id': item['assetId'],
+            'success': false,
+            'error': 'Batch write error: $e',
+          });
+        }
+      }
+    }
+
+    // Sort results by row number
+    results.sort((a, b) => (a['row'] as int).compareTo(b['row'] as int));
+    return results;
+  }
+
   Future<Map<String, int>> getAssetStats() async {
     try {
       final assetsRef = _db.collection('assets');
@@ -1513,24 +2118,26 @@ class FirebaseService {
 
       // ดึง assets ทั้งหมดและค้นหาแบบ contains
       final snapshot = await _db.collection('assets').get();
-      
+
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final docAssetId = data['asset_id']?.toString() ?? '';
-        
+
         // ตรวจสอบว่า asset_id ที่ scan มาตรงกับใน database หรือไม่
         if (docAssetId == trimmed) {
           return data;
         }
-        
+
         // ตรวจสอบว่า contains กัน (กรณี format ต่างกันเล็กน้อย)
         if (docAssetId.contains(trimmed) || trimmed.contains(docAssetId)) {
           debugPrint('🔍 พบ partial match: $docAssetId ≈ $trimmed');
           return data;
         }
-        
+
         // ตรวจสอบ document ID
-        if (doc.id == trimmed || doc.id.contains(trimmed) || trimmed.contains(doc.id)) {
+        if (doc.id == trimmed ||
+            doc.id.contains(trimmed) ||
+            trimmed.contains(doc.id)) {
           debugPrint('🔍 พบ doc ID match: ${doc.id} ≈ $trimmed');
           return data;
         }

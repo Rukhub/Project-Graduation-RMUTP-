@@ -12,6 +12,8 @@ import 'services/firebase_service.dart';
 import 'models/user_model.dart';
 import 'main.dart';
 import 'screens/inspection_history_screen.dart';
+import 'screens/permanent_asset_management_screen.dart';
+import 'bulk_import_screen.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -131,6 +133,23 @@ class AppDrawer extends StatelessWidget {
                 ApiService().currentUser?['role_num'] == 1)
               _buildMenuItem(
                 context,
+                icon: Icons.upload_file_outlined,
+                title: 'นำเข้าครุภัณฑ์ (CSV)',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BulkImportScreen(),
+                    ),
+                  );
+                },
+              ),
+
+            if (ApiService().currentUser?['role'] == 'admin' ||
+                ApiService().currentUser?['role_num'] == 1)
+              _buildMenuItem(
+                context,
                 icon: Icons.verified_outlined,
                 title: 'ตรวจสอบอุปกรณ์',
                 onTap: () {
@@ -173,6 +192,24 @@ class AppDrawer extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const UserManagementScreen(),
+                    ),
+                  );
+                },
+              ),
+
+            if (ApiService().currentUser?['role'] == 'admin' ||
+                ApiService().currentUser?['role_num'] == 1)
+              _buildMenuItem(
+                context,
+                icon: Icons.account_tree_outlined,
+                title: 'กลุ่มสินทรัพย์ถาวร',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const PermanentAssetManagementScreen(),
                     ),
                   );
                 },
@@ -351,6 +388,10 @@ class AppDrawer extends StatelessWidget {
                   DropdownButtonFormField<String>(
                     value: selectedCollection,
                     items: const [
+                      DropdownMenuItem(
+                        value: 'assets',
+                        child: Text('assets (ครุภัณฑ์)'),
+                      ),
                       DropdownMenuItem(
                         value: 'reports_history',
                         child: Text('reports_history'),

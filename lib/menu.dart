@@ -8,9 +8,11 @@ import 'add_equipment_quick.dart';
 import 'report_problem_screen.dart';
 import 'inspect_equipment_screen.dart';
 import 'screens/inspection_history_screen.dart';
+import 'screens/permanent_asset_management_screen.dart';
 import 'qr_scanner_screen.dart';
 import 'admin/user_management_screen.dart';
 import 'app_drawer.dart';
+import 'bulk_import_screen.dart';
 import 'main.dart'; // สำหรับ LoginPage
 import 'my_reports_screen.dart'; // เพิ่มใหม่: การแจ้งปัญหาของฉัน
 import 'admin_activity_history_screen.dart'; // เพิ่มใหม่: ประวัติการดำเนินการสำหรับ Admin
@@ -237,7 +239,19 @@ class _MenuScreenState extends State<MenuScreen> {
                     );
                   },
                 ),
-
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/512/8859/8859228.png',
+                  title: 'นำเข้าครุภัณฑ์จาก Excel/CSV',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BulkImportScreen(),
+                      ),
+                    );
+                  },
+                ),
                 // ========== 🔧 แจ้งซ่อม / ตรวจสอบ ==========
                 const SizedBox(height: 16),
                 _buildSectionHeader('🔧 แจ้งซ่อม / ตรวจสอบ'),
@@ -320,6 +334,20 @@ class _MenuScreenState extends State<MenuScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const UserManagementScreen(),
+                      ),
+                    );
+                  },
+                ),
+                MenuItem(
+                  imageUrl:
+                      'https://cdn-icons-png.flaticon.com/512/4072/4072210.png',
+                  title: 'กลุ่มสินทรัพย์ถาวร',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const PermanentAssetManagementScreen(),
                       ),
                     );
                   },
