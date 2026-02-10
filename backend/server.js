@@ -566,7 +566,7 @@ app.post('/api/google-login', async (req, res) => {
                     is_approved: 0,  // ⭐ ต้องรอ Admin อนุมัติก่อนใช้งานได้!
                     created_at: new Date()
                 };
-                db.query("INSERT INTO users SET ?", newUser, (insertErr, result) ห => {
+                db.query("INSERT INTO users SET ?", newUser, (insertErr, result) => {
                     if (insertErr) {
                         console.error("❌ SQL INSERT Error:", insertErr.message);
                         return res.status(500).json({ message: "Insert Fail" });
