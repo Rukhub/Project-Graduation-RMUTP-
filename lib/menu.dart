@@ -215,7 +215,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 MenuItem(
                   imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/4108/4108996.png',
+                      'https://cdn-icons-png.freepik.com/512/4299/4299774.png',
                   title: 'Scan QR Code - หาครุภัณฑ์',
                   onTap: () {
                     Navigator.push(
@@ -241,7 +241,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 MenuItem(
                   imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/8859/8859228.png',
+                      'https://cdn-icons-png.flaticon.com/512/364/364287.png',
                   title: 'นำเข้าครุภัณฑ์จาก Excel/CSV',
                   onTap: () {
                     Navigator.push(
@@ -270,7 +270,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 MenuItem(
                   imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/2838/2838838.png',
+                      'https://cdn-icons-png.flaticon.com/512/3979/3979405.png',
                   title: 'คิวงานแจ้งปัญหา',
                   onTap: () {
                     Navigator.push(
@@ -283,7 +283,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 MenuItem(
                   imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/3696/3696579.png',
+                      'https://e7.pngegg.com/pngimages/409/239/png-clipart-checklist-computer-icons-report-miscellaneous-text.png',
                   title: 'ประวัติการรายงาน',
                   onTap: () {
                     Navigator.push(
@@ -340,7 +340,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 ),
                 MenuItem(
                   imageUrl:
-                      'https://cdn-icons-png.flaticon.com/512/4072/4072210.png',
+                      'https://cdn-icons-png.flaticon.com/512/10849/10849196.png',
                   title: 'กลุ่มสินทรัพย์ถาวร',
                   onTap: () {
                     Navigator.push(

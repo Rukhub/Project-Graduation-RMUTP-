@@ -306,6 +306,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         }
 
         debugPrint('🖼️ สแกนจากรูป: $qrData');
+        if (mounted) {
+          setState(() => isProcessing = false);
+        }
         await _onQRCodeDetected(qrData);
       } finally {
         await scanner.close();

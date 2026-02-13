@@ -77,7 +77,14 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
 
       // Validate required headers
       final missingHeaders = <String>[];
-      for (final h in ['asset_id', 'asset_name', 'permanent_id']) {
+      for (final h in [
+        'asset_id',
+        'asset_name',
+        'asset_type',
+        'permanent_id',
+        'price',
+        'purchase_date',
+      ]) {
         if (!headers.contains(h)) {
           missingHeaders.add(h);
         }
@@ -128,15 +135,6 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   Future<void> _validateRows() async {
     setState(() => _isValidating = true);
 
-    final permanentSnapshot = await FirebaseService()
-        .getPermanentAssetsStream(activeOnly: false)
-        .first;
-    final validPermanentIds = <String>{};
-    for (final doc in permanentSnapshot) {
-      final id = doc['permanent_id']?.toString() ?? doc['id']?.toString() ?? '';
-      if (id.isNotEmpty) validPermanentIds.add(id);
-    }
-
     final results = <Map<String, dynamic>>[];
     final seenAssetIds = <String>{};
 
@@ -145,6 +143,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       final assetId = (row['asset_id'] ?? '').trim();
       final assetName = (row['asset_name'] ?? '').trim();
       final permanentId = (row['permanent_id'] ?? '').trim();
+      final assetType = (row['asset_type'] ?? '').trim();
+      final price = (row['price'] ?? '').trim();
+      final purchaseDate = (row['purchase_date'] ?? '').trim();
 
       String? error;
 
@@ -152,12 +153,16 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
         error = 'รหัสครุภัณฑ์ว่าง';
       } else if (assetName.isEmpty) {
         error = 'ชื่อครุภัณฑ์ว่าง';
+      } else if (assetType.isEmpty) {
+        error = 'ประเภทครุภัณฑ์ว่าง';
       } else if (permanentId.isEmpty) {
         error = 'กลุ่มสินทรัพย์ถาวรว่าง';
+      } else if (price.isEmpty) {
+        error = 'ราคาว่าง';
+      } else if (purchaseDate.isEmpty) {
+        error = 'วันที่ซื้อว่าง';
       } else if (seenAssetIds.contains(assetId)) {
-        error = 'รหัสซ้ำในไฟล์ CSV';
-      } else if (!validPermanentIds.contains(permanentId)) {
-        error = 'กลุ่มสินทรัพย์ "$permanentId" ไม่พบ';
+        error = 'รหัสครุภัณฑ์ซ้ำในไฟล์ CSV';
       }
 
       seenAssetIds.add(assetId);
@@ -570,21 +575,25 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
                   true,
                 ),
                 _buildFormatRow(
-                  'asset_type',
+                  'asset_type *',
                   'ประเภท เช่น ครุภัณฑ์สำนักงาน',
-                  false,
+                  true,
                 ),
                 _buildFormatRow(
                   'permanent_id *',
                   'กลุ่มสินทรัพย์ถาวร เช่น 1206010101',
                   true,
                 ),
-                _buildFormatRow('price', 'ราคา เช่น 20000', false),
-                _buildFormatRow('location_id', 'รหัสห้อง เช่น LOC001', false),
+                _buildFormatRow('price *', 'ราคา เช่น 20000', true),
                 _buildFormatRow(
-                  'purchase_date',
-                  'วันที่ซื้อ YYYY-MM-DD',
+                  'location_id',
+                  'รหัสห้อง (ถ้าไม่ระบุ = 1)',
                   false,
+                ),
+                _buildFormatRow(
+                  'purchase_date *',
+                  'วันที่ซื้อ เช่น 23/8/2024',
+                  true,
                 ),
                 const SizedBox(height: 16),
                 Container(

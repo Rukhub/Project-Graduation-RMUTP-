@@ -16,6 +16,7 @@ class AssetModel {
   final String? issueDetail;
   final String? reportImages; // ⭐ New field for evidence images
   final String? repairerId; // ⭐ Add for repairer lock
+  final String? permanentId; // กลุ่มสินทรัพย์ถาวร
 
   AssetModel({
     required this.assetId,
@@ -34,6 +35,7 @@ class AssetModel {
     this.issueDetail,
     this.reportImages,
     this.repairerId, // ⭐ Add for repairer lock
+    this.permanentId,
   });
 
   factory AssetModel.fromFirestore(Map<String, dynamic> data) {
@@ -59,6 +61,7 @@ class AssetModel {
       issueDetail: data['issue_detail'],
       reportImages: data['report_images'], // ⭐ Map from Firestore
       repairerId: data['repairer_id'], // ⭐ Map from Firestore
+      permanentId: data['permanent_id']?.toString(),
     );
   }
 
@@ -77,6 +80,7 @@ class AssetModel {
       'purchase_at': purchaseAt,
       'created_at': createdAt ?? DateTime.now(),
       if (repairerId != null) 'repairer_id': repairerId, // ⭐ Only save if not null
+      if (permanentId != null) 'permanent_id': permanentId,
     };
   }
 }

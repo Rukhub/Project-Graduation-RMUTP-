@@ -195,10 +195,7 @@ class FirebaseService {
     }
   }
 
-  Future<bool> addPermanentAssetGroup({
-    required String permanentId,
-    required int permanentStatus,
-  }) async {
+  Future<bool> addPermanentAssetGroup({required String permanentId}) async {
     try {
       final id = permanentId.toString().trim();
       if (id.isEmpty) return false;
@@ -209,7 +206,6 @@ class FirebaseService {
 
       await ref.set({
         'permanent_id': id,
-        'permanent_status': permanentStatus,
         'created_at': FieldValue.serverTimestamp(),
       });
       return true;
@@ -689,13 +685,25 @@ class FirebaseService {
 
     final normalized = _normalizeAssetWriteData(data);
 
+    // 1. Try updating by sanitized Doc ID directly
     try {
-      await _db.collection('assets').doc(trimmed).update(normalized);
+      final safeId = _sanitizeDocId(trimmed);
+      await _db.collection('assets').doc(safeId).update(normalized);
+      return; // Success, exit
     } on FirebaseException catch (e) {
-      if (e.code != 'not-found') rethrow;
+      if (e.code != 'not-found') {
+        debugPrint('⚠️ Direct update failed: $e');
+        // Continue to fallback if strictly not-found?
+        // Or if invalid-arg?
+        // If it was just not found, we continue.
+      }
+      // If it failed for other reasons, we might still want to try fallback?
+    } catch (e) {
+      // Catch PlatformException for invalid Ref if _sanitizeDocId missed something?
+      debugPrint('⚠️ Direct update error: $e');
     }
 
-    // Fallback: the document id may not be asset_id.
+    // 2. Fallback: Query by field 'asset_id'
     final snapshot = await _db
         .collection('assets')
         .where('asset_id', isEqualTo: trimmed)
@@ -707,6 +715,9 @@ class FirebaseService {
       return;
     }
 
+    // 3. Fallback: Query by 'asset_id' with / replaced by - (legacy?)
+    // Or just fail.
+
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'not-found',
@@ -717,6 +728,7 @@ class FirebaseService {
   Future<void> moveAssetsToLocation({
     required Iterable<String> assetIds,
     required dynamic targetLocationId,
+    String? targetLocationName,
   }) async {
     final ids = assetIds
         .map((e) => e.toString().trim())
@@ -730,8 +742,14 @@ class FirebaseService {
       final batch = _db.batch();
 
       for (final assetId in chunk) {
-        final ref = _db.collection('assets').doc(assetId);
-        batch.update(ref, {'location_id': targetLocationId});
+        // Sanitize: replace / with _ to match Firestore doc ID format
+        final safeId = _sanitizeDocId(assetId);
+        final ref = _db.collection('assets').doc(safeId);
+        final updateData = <String, dynamic>{'location_id': targetLocationId};
+        if (targetLocationName != null) {
+          updateData['location_name'] = targetLocationName;
+        }
+        batch.update(ref, updateData);
       }
 
       await batch.commit();
@@ -742,13 +760,16 @@ class FirebaseService {
     final trimmed = assetId.toString().trim();
     if (trimmed.isEmpty) return;
 
-    final ref = _db.collection('assets').doc(trimmed);
+    // Sanitize the ID — asset_ids may contain "/" which is invalid in doc paths
+    final sanitized = _sanitizeDocId(trimmed);
+    final ref = _db.collection('assets').doc(sanitized);
     final snap = await ref.get();
     if (snap.exists) {
       await ref.delete();
       return;
     }
 
+    // Fallback: query by asset_id field (handles any doc ID mismatch)
     final snapshot = await _db
         .collection('assets')
         .where('asset_id', isEqualTo: trimmed)
@@ -1192,7 +1213,9 @@ class FirebaseService {
       final trimmed = assetId.toString().trim();
       if (trimmed.isEmpty) return null;
 
-      final doc = await _db.collection('assets').doc(trimmed).get();
+      // Sanitize ID to prevent "Invalid document reference" crash
+      final safeId = _sanitizeDocId(trimmed);
+      final doc = await _db.collection('assets').doc(safeId).get();
       if (doc.exists) return doc.data();
 
       // Fallback: docId may not be asset_id
@@ -1756,13 +1779,6 @@ class FirebaseService {
   }) async {
     final results = <Map<String, dynamic>>[];
 
-    // Pre-fetch all permanent assets for validation
-    final permanentSnapshot = await _db.collection('assets_permanent').get();
-    final validPermanentIds = <String>{};
-    for (final doc in permanentSnapshot.docs) {
-      validPermanentIds.add(doc.id);
-    }
-
     // Pre-fetch location room names
     final locationSnapshot = await _db.collection('locations').get();
     final locationRoomNames = <String, String>{};
@@ -1820,31 +1836,18 @@ class FirebaseService {
         onProgress?.call(i + 1, rows.length);
         continue;
       }
-
       // Check duplicate within CSV file
       if (csvAssetIds.contains(assetId)) {
         results.add({
           'row': i + 1,
           'asset_id': assetId,
           'success': false,
-          'error': 'รหัสซ้ำในไฟล์ CSV',
+          'error': 'รหัสครุภัณฑ์ซ้ำในไฟล์ CSV',
         });
         onProgress?.call(i + 1, rows.length);
         continue;
       }
       csvAssetIds.add(assetId);
-
-      // Check permanent_id exists
-      if (!validPermanentIds.contains(permanentId)) {
-        results.add({
-          'row': i + 1,
-          'asset_id': assetId,
-          'success': false,
-          'error': 'กลุ่มสินทรัพย์ถาวร "$permanentId" ไม่พบในระบบ',
-        });
-        onProgress?.call(i + 1, rows.length);
-        continue;
-      }
 
       // Check if asset_id already exists in Firestore
       final available = await isAssetIdAvailable(assetId);
@@ -1866,10 +1869,31 @@ class FirebaseService {
         price = double.tryParse(cleaned);
       }
 
-      // Parse purchase date
+      // Parse purchase date - supports YYYY-MM-DD, D/M/YYYY, DD/MM/YYYY, D-M-YYYY
       DateTime? purchaseDate;
       if (purchaseDateStr.isNotEmpty) {
+        // Try ISO 8601 first (YYYY-MM-DD)
         purchaseDate = DateTime.tryParse(purchaseDateStr);
+        if (purchaseDate == null) {
+          // Try D/M/YYYY or DD/MM/YYYY (common Excel format)
+          final slashParts = purchaseDateStr.split(RegExp(r'[/\-]'));
+          if (slashParts.length == 3) {
+            final d = int.tryParse(slashParts[0]);
+            final m = int.tryParse(slashParts[1]);
+            final y = int.tryParse(slashParts[2]);
+            if (d != null &&
+                m != null &&
+                y != null &&
+                m >= 1 &&
+                m <= 12 &&
+                d >= 1 &&
+                d <= 31) {
+              // Handle Buddhist Era year (พ.ศ.) - if year > 2400, subtract 543
+              final ceYear = y > 2400 ? y - 543 : y;
+              purchaseDate = DateTime(ceYear, m, d);
+            }
+          }
+        }
       }
 
       // Resolve location room name
@@ -1881,7 +1905,7 @@ class FirebaseService {
         'asset_type': assetType,
         'permanent_id': permanentId,
         'price': price,
-        'location_id': locationId.isNotEmpty ? locationId : null,
+        'location_id': locationId.isNotEmpty ? locationId : '1',
         if (roomName != null) 'location_name': roomName,
         'asset_status': 1,
         'asset_image_url': null,

@@ -5,11 +5,7 @@ class ReportCard extends StatelessWidget {
   final Map<String, dynamic> report;
   final VoidCallback onTap;
 
-  const ReportCard({
-    super.key,
-    required this.report,
-    required this.onTap,
-  });
+  const ReportCard({super.key, required this.report, required this.onTap});
 
   int _reportStatusToCode(dynamic value) {
     if (value == null) return 1;
@@ -76,7 +72,7 @@ class ReportCard extends StatelessWidget {
 
   String _formatTimestamp(dynamic timestamp) {
     if (timestamp == null) return 'ไม่ระบุ';
-    
+
     DateTime dateTime;
     if (timestamp is Timestamp) {
       dateTime = timestamp.toDate();
@@ -88,16 +84,26 @@ class ReportCard extends StatelessWidget {
 
     // Simple Thai date formatting without intl package
     const List<String> months = [
-      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+      'ม.ค.',
+      'ก.พ.',
+      'มี.ค.',
+      'เม.ย.',
+      'พ.ค.',
+      'มิ.ย.',
+      'ก.ค.',
+      'ส.ค.',
+      'ก.ย.',
+      'ต.ค.',
+      'พ.ย.',
+      'ธ.ค.',
     ];
-    
+
     final day = dateTime.day;
     final month = months[dateTime.month - 1];
     final year = dateTime.year + 543; // Buddhist calendar
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
-    
+
     return '$day $month $year $hour:$minute';
   }
 
@@ -110,40 +116,44 @@ class ReportCard extends StatelessWidget {
 
     final String reporter =
         report['reporter_name']?.toString().trim().isNotEmpty == true
-            ? report['reporter_name']?.toString() ?? ''
-            : (report['reporter_id']?.toString() ?? '');
+        ? report['reporter_name']?.toString() ?? ''
+        : (report['reporter_id']?.toString() ?? '');
 
     final String issue = isRepairAgain
         ? ((report['report_remark'] ?? report['remark_report'])?.toString() ??
-            report['issue']?.toString() ??
-            'ไม่มีรายละเอียด')
+              report['issue']?.toString() ??
+              'ไม่มีรายละเอียด')
         : ((report['report_remark'] ?? report['remark_report'])?.toString() ??
-            report['issue']?.toString() ??
-            'ไม่มีรายละเอียด');
-    final int statusCode =
-        _reportStatusToCode(report['report_status'] ?? report['status']);
+              report['issue']?.toString() ??
+              'ไม่มีรายละเอียด');
+    final int statusCode = _reportStatusToCode(
+      report['report_status'] ?? report['status'],
+    );
 
     final String worker =
         report['worker_name']?.toString().trim().isNotEmpty == true
-            ? report['worker_name']?.toString() ?? ''
-            : (report['worker_id']?.toString() ?? '');
+        ? report['worker_name']?.toString() ?? ''
+        : (report['worker_id']?.toString() ?? '');
 
     final String cancelledNote =
         (report['finished_remark'] ??
-                    report['remark_finished'] ??
-                    report['remark_completed'] ??
-                    report['remark_broken'])
-                ?.toString() ??
-            '';
+                report['remark_finished'] ??
+                report['remark_completed'] ??
+                report['remark_broken'])
+            ?.toString() ??
+        '';
     final String remarkText =
-        (statusCode == 4 && cancelledNote.trim().isNotEmpty) ? cancelledNote : issue;
+        (statusCode == 4 && cancelledNote.trim().isNotEmpty)
+        ? cancelledNote
+        : issue;
 
     final String imageUrl = isRepairAgain
         ? ''
         : (report['report_image_url']?.toString() ?? '');
     final dynamic reportedAt = report['reported_at'];
     final String? reportIdRaw = report['id']?.toString();
-    final String? reportIdDisplay = (reportIdRaw != null && reportIdRaw.isNotEmpty)
+    final String? reportIdDisplay =
+        (reportIdRaw != null && reportIdRaw.isNotEmpty)
         ? _formatReportDocId(reportIdRaw)
         : null;
 

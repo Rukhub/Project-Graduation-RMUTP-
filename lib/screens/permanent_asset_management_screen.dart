@@ -68,15 +68,6 @@ class PermanentAssetManagementScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final it = items[index];
               final id = (it['permanent_id'] ?? it['id'] ?? '').toString();
-              final rawStatus = it['permanent_status'];
-              final status = rawStatus is int
-                  ? rawStatus
-                  : int.tryParse(rawStatus?.toString() ?? '') ?? 2;
-
-              final statusLabel = status == 1 ? 'ห้ามซ้ำ' : 'ซ้ำได้';
-              final Color statusColor = status == 1
-                  ? const Color(0xFFDC2626)
-                  : const Color(0xFF2563EB);
 
               return Card(
                 elevation: 2,
@@ -95,35 +86,6 @@ class PermanentAssetManagementScreen extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       fontSize: 16,
                       letterSpacing: 0.2,
-                    ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: statusColor.withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: Text(
-                            'รูปแบบ: $statusLabel',
-                            style: TextStyle(
-                              color: statusColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                   trailing: Row(
@@ -193,7 +155,6 @@ class PermanentAssetManagementScreen extends StatelessWidget {
 
   void _showAddDialog(BuildContext context) {
     final TextEditingController idController = TextEditingController();
-    int status = 1;
     bool saving = false;
 
     showDialog(
@@ -204,37 +165,14 @@ class PermanentAssetManagementScreen extends StatelessWidget {
           builder: (context, setState) {
             return AlertDialog(
               title: const Text('เพิ่มกลุ่มสินทรัพย์ถาวร'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: idController,
-                    decoration: const InputDecoration(
-                      labelText: 'Permanent ID',
-                      hintText: 'เช่น 120610101',
-                      border: OutlineInputBorder(),
-                    ),
-                    enabled: !saving,
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<int>(
-                    value: status,
-                    decoration: const InputDecoration(
-                      labelText: 'รูปแบบการใช้งาน',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text('ห้ามซ้ำ')),
-                      DropdownMenuItem(value: 2, child: Text('ซ้ำได้')),
-                    ],
-                    onChanged: saving
-                        ? null
-                        : (v) {
-                            if (v == null) return;
-                            setState(() => status = v);
-                          },
-                  ),
-                ],
+              content: TextField(
+                controller: idController,
+                decoration: const InputDecoration(
+                  labelText: 'Permanent ID',
+                  hintText: 'เช่น 120610101',
+                  border: OutlineInputBorder(),
+                ),
+                enabled: !saving,
               ),
               actions: [
                 TextButton(
@@ -250,10 +188,7 @@ class PermanentAssetManagementScreen extends StatelessWidget {
                           setState(() => saving = true);
 
                           final success = await FirebaseService()
-                              .addPermanentAssetGroup(
-                                permanentId: id,
-                                permanentStatus: status,
-                              );
+                              .addPermanentAssetGroup(permanentId: id);
 
                           if (!context.mounted) return;
 
@@ -297,11 +232,10 @@ class PermanentAssetManagementScreen extends StatelessWidget {
   }
 
   void _showEditDialog(BuildContext context, Map<String, dynamic> item) {
-    final String id = (item['permanent_id'] ?? item['id'] ?? '').toString();
-    final rawStatus = item['permanent_status'];
-    int status = rawStatus is int
-        ? rawStatus
-        : int.tryParse(rawStatus?.toString() ?? '') ?? 2;
+    final String oldId = (item['permanent_id'] ?? item['id'] ?? '').toString();
+    final TextEditingController idController = TextEditingController(
+      text: oldId,
+    );
     bool saving = false;
 
     showDialog(
@@ -312,36 +246,13 @@ class PermanentAssetManagementScreen extends StatelessWidget {
           builder: (context, setState) {
             return AlertDialog(
               title: const Text('แก้ไขกลุ่มสินทรัพย์ถาวร'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: TextEditingController(text: id),
-                    decoration: const InputDecoration(
-                      labelText: 'Permanent ID',
-                      border: OutlineInputBorder(),
-                    ),
-                    enabled: false,
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<int>(
-                    value: status,
-                    decoration: const InputDecoration(
-                      labelText: 'รูปแบบการใช้งาน',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text('ห้ามซ้ำ')),
-                      DropdownMenuItem(value: 2, child: Text('ซ้ำได้')),
-                    ],
-                    onChanged: saving
-                        ? null
-                        : (v) {
-                            if (v == null) return;
-                            setState(() => status = v);
-                          },
-                  ),
-                ],
+              content: TextField(
+                controller: idController,
+                decoration: const InputDecoration(
+                  labelText: 'Permanent ID',
+                  border: OutlineInputBorder(),
+                ),
+                enabled: !saving,
               ),
               actions: [
                 TextButton(
@@ -352,11 +263,23 @@ class PermanentAssetManagementScreen extends StatelessWidget {
                   onPressed: saving
                       ? null
                       : () async {
+                          final newId = idController.text.trim();
+                          if (newId.isEmpty) return;
                           setState(() => saving = true);
-                          final success = await FirebaseService()
-                              .updatePermanentAssetGroup(id, {
-                                'permanent_status': status,
-                              });
+
+                          bool success;
+                          if (newId == oldId) {
+                            // No change, just close
+                            Navigator.pop(context);
+                            return;
+                          } else {
+                            // Delete old, create new
+                            await FirebaseService().deletePermanentAssetGroup(
+                              oldId,
+                            );
+                            success = await FirebaseService()
+                                .addPermanentAssetGroup(permanentId: newId);
+                          }
 
                           if (!context.mounted) return;
 
@@ -367,7 +290,7 @@ class PermanentAssetManagementScreen extends StatelessWidget {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'บันทึกไม่สำเร็จ (อาจมีครุภัณฑ์หลายชิ้นใช้กลุ่มนี้อยู่)',
+                                  'บันทึกไม่สำเร็จ (อาจมีรหัสนี้อยู่แล้ว)',
                                 ),
                                 backgroundColor: Colors.red,
                               ),

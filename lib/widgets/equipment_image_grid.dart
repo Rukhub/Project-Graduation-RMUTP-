@@ -217,10 +217,7 @@ class EquipmentEmptyImageState extends StatelessWidget {
 class EquipmentAddImageButton extends StatelessWidget {
   final VoidCallback onAddImage;
 
-  const EquipmentAddImageButton({
-    super.key,
-    required this.onAddImage,
-  });
+  const EquipmentAddImageButton({super.key, required this.onAddImage});
 
   @override
   Widget build(BuildContext context) {
@@ -283,15 +280,15 @@ class EquipmentImageCard extends StatelessWidget {
           Positioned(
             top: 5,
             right: 5,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.8),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.close, color: Colors.white, size: 18),
-                onPressed: () => onDelete(index),
+            child: InkWell(
+              onTap: () => onDelete(index),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.8),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 14),
               ),
             ),
           ),

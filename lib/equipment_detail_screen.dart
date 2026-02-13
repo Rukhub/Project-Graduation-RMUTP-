@@ -636,8 +636,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
                               final image = await picker.pickImage(
                                 source: source,
-
-                                imageQuality: 85,
+                                maxWidth: 1024,
+                                maxHeight: 1024,
+                                imageQuality: 80,
                               );
 
                               if (image == null) return;
@@ -1091,6 +1092,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                           if (source != null) {
                             final picked = await ImagePicker().pickImage(
                               source: source,
+                              maxWidth: 1024,
+                              maxHeight: 1024,
+                              imageQuality: 80,
                             );
 
                             if (picked != null && ctx.mounted) {
@@ -3052,6 +3056,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                             if (source != null) {
                               final picked = await ImagePicker().pickImage(
                                 source: source,
+                                maxWidth: 1024,
+                                maxHeight: 1024,
+                                imageQuality: 80,
                               );
 
                               if (picked != null && ctx.mounted) {
@@ -3973,6 +3980,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                             if (source != null) {
                               final picked = await ImagePicker().pickImage(
                                 source: source,
+                                maxWidth: 1024,
+                                maxHeight: 1024,
+                                imageQuality: 80,
                               );
 
                               if (picked != null && ctx.mounted) {
@@ -4146,6 +4156,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                             if (source != null) {
                               final picked = await ImagePicker().pickImage(
                                 source: source,
+                                maxWidth: 1024,
+                                maxHeight: 1024,
+                                imageQuality: 80,
                               );
 
                               if (picked != null && ctx.mounted) {
@@ -7605,7 +7618,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
             final directory = await getTemporaryDirectory();
 
-            final path = '${directory.path}/QR_$assetId.png';
+            final safeId = assetId.replaceAll('/', '_');
+            final path = '${directory.path}/QR_$safeId.png';
 
             final file = File(path);
 
@@ -7678,7 +7692,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
       if (qrValidationResult.status == QrValidationStatus.valid) {
         final qrCode = qrValidationResult.qrCode!;
-
         final painter = QrPainter.withQr(
           qr: qrCode,
 
@@ -7720,7 +7733,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         if (picData != null) {
           final directory = await getTemporaryDirectory();
 
-          final path = '${directory.path}/QR_$assetId.png';
+          final safeId = assetId.replaceAll('/', '_');
+          final path = '${directory.path}/QR_$safeId.png';
 
           final file = File(path);
 
