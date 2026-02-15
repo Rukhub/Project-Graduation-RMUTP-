@@ -840,7 +840,7 @@ class FirebaseService {
 
           Map<String, dynamic>? assetData;
           try {
-            final doc = await _db.collection('assets').doc(trimmed).get();
+            final doc = await _db.collection('assets').doc(_sanitizeDocId(trimmed)).get();
             assetData = doc.data();
           } catch (_) {}
 
@@ -992,7 +992,8 @@ class FirebaseService {
         "${now.millisecond.toString().padLeft(3, '0')}";
 
     final String assetId = report['asset_id'].toString();
-    final String customDocId = "${assetId}_$timestampStr";
+    final String safeAssetId = _sanitizeDocIdPart(assetId);
+    final String customDocId = "${safeAssetId}_$timestampStr";
 
     final sanitizedReport = Map<String, dynamic>.from(report);
     sanitizedReport.remove('issue');
@@ -1016,7 +1017,7 @@ class FirebaseService {
       try {
         Map<String, dynamic>? assetData;
         try {
-          final doc = await _db.collection('assets').doc(assetId).get();
+          final doc = await _db.collection('assets').doc(_sanitizeDocId(assetId)).get();
           assetData = doc.data();
         } catch (_) {}
 
@@ -1085,7 +1086,7 @@ class FirebaseService {
     try {
       Map<String, dynamic>? assetData;
       try {
-        final doc = await _db.collection('assets').doc(assetId).get();
+        final doc = await _db.collection('assets').doc(_sanitizeDocId(assetId)).get();
         assetData = doc.data();
       } catch (_) {}
 
@@ -1114,7 +1115,8 @@ class FirebaseService {
         "${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}-"
         "${now.millisecond.toString().padLeft(3, '0')}";
 
-    final String customDocId = "${assetId}_$timestampStr";
+    final String safeAssetId = _sanitizeDocIdPart(assetId);
+    final String customDocId = "${safeAssetId}_$timestampStr";
 
     await _db.collection('reports_history').doc(customDocId).set({
       'asset_id': assetId,

@@ -1746,9 +1746,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
     if (assetId == null) return;
 
+    final safeAssetId = assetId.replaceAll('/', '_');
     _assetStreamSub = FirebaseFirestore.instance
         .collection('assets')
-        .doc(assetId)
+        .doc(safeAssetId)
         .snapshots()
         .listen(
           (snapshot) {
