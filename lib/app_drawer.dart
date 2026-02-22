@@ -30,7 +30,7 @@ class AppDrawer extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            // Header
+            // Header (fixed at top)
             Container(
               padding: const EdgeInsets.all(20),
               child: Row(
@@ -77,189 +77,194 @@ class AppDrawer extends StatelessWidget {
               ),
             ),
             const Divider(color: Colors.white24, height: 1),
-            const SizedBox(height: 10),
 
-            // ระบบจัดการ Section
-            _buildSectionHeader('ระบบจัดการ'),
-            const SizedBox(height: 5),
+            // Scrollable menu items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(top: 10, bottom: 10),
+                children: [
+                  // ระบบจัดการ Section
+                  _buildSectionHeader('ระบบจัดการ'),
+                  const SizedBox(height: 5),
 
-            // Menu Items
-            _buildMenuItem(
-              context,
-              icon: Icons.home_outlined,
-              title: 'หน้าแรก',
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const MenuScreen()),
-                  (route) => false,
-                );
-              },
-            ),
-            _buildMenuItem(
-              context,
-              icon: Icons.inventory_2_outlined,
-              title: 'ครุภัณฑ์',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const KrupanScreen()),
-                );
-              },
-            ),
-
-            // เมนูสำหรับ Admin เท่านั้น
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.add_circle_outline,
-                title: 'เพิ่มอุปกรณ์',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
+                  // Menu Items
+                  _buildMenuItem(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => const AddEquipmentQuickScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            // เมนูสำหรับ Admin เท่านั้น
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.upload_file_outlined,
-                title: 'นำเข้าครุภัณฑ์ (CSV)',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const BulkImportScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.verified_outlined,
-                title: 'ตรวจสอบอุปกรณ์',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const InspectEquipmentScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.history,
-                title: 'ประวัติการตรวจสอบอุปกรณ์',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const InspectionHistoryScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.manage_accounts_outlined,
-                title: 'ระบบอนุมัติผู้ใช้',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const UserManagementScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            if (ApiService().currentUser?['role'] == 'admin' ||
-                ApiService().currentUser?['role_num'] == 1)
-              _buildMenuItem(
-                context,
-                icon: Icons.account_tree_outlined,
-                title: 'กลุ่มสินทรัพย์ถาวร',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          const PermanentAssetManagementScreen(),
-                    ),
-                  );
-                },
-              ),
-
-            _buildMenuItem(
-              context,
-              icon: Icons.report_problem_outlined,
-              title: 'แจ้งปัญหา',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ReportProblemScreen(),
+                    icon: Icons.home_outlined,
+                    title: 'หน้าแรก',
+                    onTap: () {
+                      Navigator.pop(context); // Close drawer
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (context) => const MenuScreen()),
+                        (route) => false,
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+                  _buildMenuItem(
+                    context,
+                    icon: Icons.inventory_2_outlined,
+                    title: 'ครุภัณฑ์',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const KrupanScreen()),
+                      );
+                    },
+                  ),
 
-            if (canPurge)
-              _buildMenuItem(
-                context,
-                icon: Icons.delete_forever_outlined,
-                title: 'ล้างประวัติแจ้งซ่อม',
-                onTap: () {
-                  Navigator.pop(context);
-                  _showPurgeReportsHistoryDialog(context);
-                },
+                  // เมนูสำหรับ Admin เท่านั้น
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.add_circle_outline,
+                      title: 'เพิ่มอุปกรณ์',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AddEquipmentQuickScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  // เมนูสำหรับ Admin เท่านั้น
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.upload_file_outlined,
+                      title: 'นำเข้าครุภัณฑ์ (CSV)',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const BulkImportScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.verified_outlined,
+                      title: 'ตรวจสอบอุปกรณ์',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const InspectEquipmentScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.history,
+                      title: 'ประวัติการตรวจสอบอุปกรณ์',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const InspectionHistoryScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.manage_accounts_outlined,
+                      title: 'ระบบอนุมัติผู้ใช้',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const UserManagementScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  if (ApiService().currentUser?['role'] == 'admin' ||
+                      ApiService().currentUser?['role_num'] == 1)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.account_tree_outlined,
+                      title: 'กลุ่มสินทรัพย์ถาวร',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const PermanentAssetManagementScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  _buildMenuItem(
+                    context,
+                    icon: Icons.report_problem_outlined,
+                    title: 'แจ้งปัญหา',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ReportProblemScreen(),
+                        ),
+                      );
+                    },
+                  ),
+
+                  if (canPurge)
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.delete_forever_outlined,
+                      title: 'ล้างประวัติแจ้งซ่อม',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showPurgeReportsHistoryDialog(context);
+                      },
+                    ),
+
+                  const Divider(color: Colors.white24, height: 30),
+
+                  // โปรไฟล์ Section
+                  _buildSectionHeader('บัญชี'),
+                  const SizedBox(height: 5),
+
+                  _buildMenuItem(
+                    context,
+                    icon: Icons.person_outline,
+                    title: 'ตั้งค่าโปรไฟล์',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showProfileDialog(context);
+                    },
+                  ),
+                ],
               ),
-
-            const Divider(color: Colors.white24, height: 30),
-
-            // โปรไฟล์ Section
-            _buildSectionHeader('บัญชี'),
-            const SizedBox(height: 5),
-
-            _buildMenuItem(
-              context,
-              icon: Icons.person_outline,
-              title: 'ตั้งค่าโปรไฟล์',
-              onTap: () {
-                Navigator.pop(context);
-                _showProfileDialog(context);
-              },
             ),
 
-            const Spacer(),
-
-            // ออกจากระบบ
+            // ออกจากระบบ (fixed at bottom)
             Container(
               margin: const EdgeInsets.all(20),
               child: Material(
@@ -292,7 +297,7 @@ class AppDrawer extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 10),
           ],
         ),
       ),
